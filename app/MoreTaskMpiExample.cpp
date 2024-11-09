@@ -26,6 +26,7 @@ int main(int argc, char **argv)
 
         std::string file;
         int K;
+	std::string partitioner;
         bool directed, weighted;
         for (int i = 1; i < argc; i++) {
             if (strcmp(argv[i], "-f") == 0) {
@@ -36,11 +37,13 @@ int main(int argc, char **argv)
                 directed = (strcmp(argv[i + 1], "true") == 0);
             } else if (strcmp(argv[i], "-weight") == 0) {
                 weighted = (strcmp(argv[i + 1], "true") == 0);
+            } else if (strcmp(argv[i], "-partitioner") == 0) {
+                partitioner = argv[i + 1];
             }
         }
 
         // precondition
-        fap::fapGraphMoreTaskMPI G(file, directed, weighted, K);
+        fap::fapGraphMoreTaskMPI G(file, directed, weighted, K, partitioner);
         G.init(num_process, K);
         if (myProcess == 0) {
             G.preCondition();

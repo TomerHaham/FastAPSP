@@ -24,6 +24,7 @@ class fapGraph{
     // Graph meta and related func.
     // input param.
     std::string input_graph;
+    std::string partitioner;
     std::stringstream input_file;
 
     // output param.
@@ -77,7 +78,7 @@ class fapGraph{
 
     // contruct data struct
     fapGraph(std::string input_graph,
-            bool directed, bool weight, int32_t K);
+            bool directed, bool weight, int32_t K, std::string partitioner);
     fapGraph(int32_t num_vertexs, int64_t num_edges,
             std::vector<int32_t> row_offset, std::vector<int32_t> col_val,
             std::vector<float> weight, int32_t K);

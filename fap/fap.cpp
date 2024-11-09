@@ -25,7 +25,7 @@
 namespace fap {
 
 fapGraph::fapGraph(std::string input_graph,
-                  bool directed, bool weighted, int32_t K) {
+                  bool directed, bool weighted, int32_t K, std::string partitioner) {
   // build graph from file.
   int vertexs;
   int edges;
@@ -34,6 +34,7 @@ fapGraph::fapGraph(std::string input_graph,
   this->num_vertexs = vertexs;
   this->num_edges = edges;
   this->K = K;
+  this->partitioner = partitioner;
 
   this->adj_size.resize(vertexs);
   this->row_offset.resize(vertexs + 1);
@@ -55,7 +56,7 @@ fapGraph::fapGraph(std::string input_graph,
   // get subgraph message from metis.
   readIdFile_METIS(
       graph_id.data(), BlockVer, K, directed, vertexs, edges,
-      adj_size.data(), row_offset.data(), col_val.data(), weight.data());
+      adj_size.data(), row_offset.data(), col_val.data(), weight.data(), partitioner);
 }
 
 fapGraph::fapGraph(int32_t num_vertexs, int64_t num_edges,

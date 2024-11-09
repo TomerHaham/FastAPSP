@@ -22,6 +22,7 @@
 int main(int argc, char **argv)
 {
     std::string file;
+    std::string partitioner;
     int K;
     bool directed, weighted;
     for (int i = 1; i < argc; i++) {
@@ -33,11 +34,13 @@ int main(int argc, char **argv)
             directed = (strcmp(argv[i + 1], "true") == 0);
         } else if (strcmp(argv[i], "-weight") == 0) {
             weighted = (strcmp(argv[i + 1], "true") == 0);
+        } else if (strcmp(argv[i], "-partitioner") == 0) {
+            partitioner = argv[i + 1];
         }
     }
 
     // run the kernel
-    fap::fapGraph G(file, directed, weighted, K);
+    fap::fapGraph G(file, directed, weighted, K, partitioner);
     G.preCondition();
     if (G.isSplit() && K >= 3) {
         G.solveSubGraph(1, true);
