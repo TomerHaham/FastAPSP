@@ -11,13 +11,17 @@ set(CMAKE_CUDA_STANDARD_REQUIRED True)
 
 option(WITH_CUDA "Enable the CUDA backend for supported interfaces" ON)
 
-# Set paths for KaHIP, Metis, and Jet Partitioner (use Spack paths or set manually)
+# Set paths for KaHIP, Metis, Jet Partitioner (use Spack paths or set manually)
 set(KAHIP_DIR "/home/thaham/bachelor_project/spack/opt/spack/linux-ubuntu22.04-sapphirerapids/gcc-11.4.0/kahip-3.14-drjnai36m4zbt7k2y46yn5xiz5toknvs")
 set(METIS_DIR "/home/thaham/bachelor_project/spack/opt/spack/linux-ubuntu22.04-sapphirerapids/gcc-11.4.0/metis-5.1.0-qdyf5j343pnyx43w2s3egtrk7v4j3f3n")
 set(LOC "/home/thaham/bachelor_project/Jet-Partitioner/container")
 set(KOKKOS_DIR "${LOC}/install/kokkos")
 set(KOKKOS_KERNELS_DIR "${LOC}/install/kokkos-kernels")
 set(JET_PARTITIONER_DIR "/home/thaham/bachelor_project/Jet-Partitioner")
+
+# FlatBuffers Spack Path
+set(FLATBUFFERS_DIR "/home/thaham/bachelor_project/spack/opt/spack/linux-ubuntu22.04-sapphirerapids/gcc-11.4.0/flatbuffers-24.3.7-63wczour3cdlvcj4j6ze4y3daixbpxqq")
+
 
 # Set the compiler to nvcc_wrapper if CUDA is enabled
 if (WITH_CUDA)
@@ -42,12 +46,14 @@ endif()
 # Find MPI
 find_package(MPI REQUIRED)
 
-# Include directories for KaHIP, Metis, Jet Partitioner, Kokkos, and KokkosKernels
+# Include directories for KaHIP, Metis, Jet Partitioner, Kokkos, KokkosKernels, FlatBuffers
 include_directories("${KAHIP_DIR}/include")
 include_directories("${METIS_DIR}/include")
 include_directories("${KOKKOS_DIR}/include")
 include_directories("${KOKKOS_KERNELS_DIR}/include")
 include_directories("${JET_PARTITIONER_DIR}")  # Include the directory containing jet.hpp
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}")  # Include project root for experiment_data_generated.h
+include_directories("${FLATBUFFERS_DIR}/include")  # FlatBuffers include path
 
 # Link directories for KaHIP, Metis, Jet Partitioner, and dependencies
 link_directories("${KAHIP_DIR}/lib")
@@ -55,6 +61,7 @@ link_directories("${METIS_DIR}/lib")
 link_directories("${KOKKOS_DIR}/lib")
 link_directories("${KOKKOS_KERNELS_DIR}/lib")
 link_directories("${JET_PARTITIONER_DIR}/lib")
+link_directories("${FLATBUFFERS_DIR}/lib")  # FlatBuffers library path
 
 # Add the fap library
 add_subdirectory(fap)
@@ -79,7 +86,8 @@ foreach(examplefile IN LISTS examples)
         ${KOKKOS_DIR}/lib/libkokkoscontainers.a
         ${KOKKOS_DIR}/lib/libkokkossimd.a
         ${KOKKOS_KERNELS_DIR}/lib/libkokkoskernels.a
-        ${CUDA_LIBRARIES} OpenMP::OpenMP_CXX cuda)
+        ${CUDA_LIBRARIES} OpenMP::OpenMP_CXX cuda
+        "${FLATBUFFERS_DIR}/lib/libflatbuffers.so")  # Link FlatBuffers library
 
     # Add include paths for each example
     target_include_directories(${examplename} PUBLIC
@@ -91,6 +99,7 @@ foreach(examplefile IN LISTS examples)
         "${KOKKOS_KERNELS_DIR}/include"
         "${JET_PARTITIONER_DIR}"
         "${CUDA_INCLUDE_DIRS}"
+        "${FLATBUFFERS_DIR}/include"  # Include FlatBuffers
     )
 
     # Set CUDA-specific properties if CUDA is enabled
