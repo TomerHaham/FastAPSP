@@ -97,10 +97,16 @@ void Graph_decomposition(int *id,
 
         // Jet partitioning setup
         Kokkos::View<int*, Device> vertex_weights("vertex_weights", vertexs);
+	// added 28.11
+	Kokkos::deep_copy(vertex_weights, 1);
+
         jet_partitioner::ExperimentLoggerUtil<int> experiment;
 
         // Perform the partition
-        auto part_view = jet_partitioner::partitioner<matrix_t, int>::partition(graph, vertex_weights, K, 1.3, false, experiment);
+        auto part_view = jet_partitioner::partitioner<matrix_t, int>::partition(graph, vertex_weights, K, 1.03, false, experiment);
+
+	// After partitioning
+	//experiment.verboseReport();
 
         // Copy results back to host
         auto part_host = Kokkos::create_mirror_view(part_view);
@@ -113,7 +119,7 @@ void Graph_decomposition(int *id,
             BlockVer[subGraph_id].push_back(i);
         }
     } 
-    else if (partitioner == "KaHIP" || partitioner == "metis") {
+    else if (partitioner == "KaHIP" || partitioner == "KaHIP_soc_s" || partitioner == "KaHIP_soc_f" ||partitioner == "KaHIP_f" || partitioner == "metis") {
         std::vector<idx_t> xadj(1);
         std::vector<idx_t> adjncy;
 
@@ -157,13 +163,19 @@ void Graph_decomposition(int *id,
         idx_t objval;
         std::vector<idx_t> part(nVertices, 0);
 
-        if (partitioner == "KaHIP") {
-            double imbalance = 0.03;  // 3% imbalance
+        if (partitioner == "KaHIP" || partitioner == "KaHIP_soc_s" || partitioner == "KaHIP_soc_f" ||partitioner == "KaHIP_f") {
+            double imbalance = 0.003;  // 3% imbalance
             bool suppress_output = true;  // Suppress output to stdout
-            int seed = 100;  // Random seed
+            int seed = 1000;  // Random seed
             int mode = 2;  // Mode (e.g., FAST mode in KaHIP)
             int edgecut = 0;
-
+	    if(partitioner == "KaHIP_f"){
+	    	mode = 0;
+	    }else if(partitioner == "KaHIP_soc_f"){
+		mode = 3;
+	    }else if(partitioner == "KaHIP_soc_s"){
+		mode = 5;
+            } 
             // Call KaHIP partitioner
             kaffpa(&nVertices, nullptr, xadj.data(), nullptr, adjncy.data(), &nParts,
                    &imbalance, suppress_output, seed, mode, &edgecut, part.data());
