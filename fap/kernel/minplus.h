@@ -75,6 +75,19 @@ void min_plus_path(float *mat1, float *mat2, float *res, int *path,
 #endif
 }
 
+//new version
+void min_plus_path_advanced_gpu(float *d_mat1, float *d_res, int *d_subGraph_path,
+                                float *d_res_offset, int *d_subGraph_path_offset,
+                                int inner_num, int total_vertexs, int bdy_num) {
+#ifdef WITH_CUDA
+    std::cout << "lxd_debug: run the CUDA kernel!" << std::endl;
+    minplus_NVIDIA_path_gpu(d_mat1, d_res, d_subGraph_path,
+                            d_res_offset, d_subGraph_path_offset,
+                            inner_num, total_vertexs, bdy_num);
+#endif
+}
+
+
 void min_plus_path_advanced(float *mat1, float *mat2, int *mat2_path,
     float *res, int *path, int M, int N, int K) {
 #ifdef WITH_CUDA

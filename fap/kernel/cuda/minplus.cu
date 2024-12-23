@@ -188,12 +188,24 @@ __global__ void MatrixMulCUDA6_path(
     }
 }
 
+__global__ void memset2D_path_gpu(float* output, int width, int height) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (x < width && y < height) {
+        int idx = y * width + x;
+        output[idx] = INFINITY;
+    }
+}
 __global__ void memset2D_path(float *mat, int dim)
 {
     int row = blockIdx.y * blockDim.y + threadIdx.y;
     int col = blockIdx.x * blockDim.x + threadIdx.x;
-
-    mat[row * dim + col] = MAXVALUE;
+    
+    // Add bounds checking
+    if (row < dim && col < dim) {
+        mat[row * dim + col] = MAXVALUE;
+    }
 }
 
 void minplus_NVIDIA_path(float *mat1, float *mat2, int *mat2_path,
@@ -246,6 +258,46 @@ void minplus_NVIDIA_path(float *mat1, float *mat2, int *mat2_path,
     cudaFree(d_c_path);
 }
 
+//new version
+
+// 2. Modified kernel launch with proper error checking
+void minplus_NVIDIA_path_gpu(float *d_mat1, float *d_res, int *d_res_path,
+                             float *d_res_offset, int *d_res_path_offset,
+                             int inner_num, int total_vertexs, int bdy_num) {
+    const int M = inner_num;
+    const int N = total_vertexs;
+
+    try {
+        const int BLOCK_SIZE = 32;
+        dim3 gridDim((N + BLOCK_SIZE - 1) / BLOCK_SIZE, 
+                     (M + BLOCK_SIZE - 1) / BLOCK_SIZE);
+        dim3 blockDim(BLOCK_SIZE, BLOCK_SIZE);
+
+        // Check grid dimensions
+        if (gridDim.x > 65535 || gridDim.y > 65535) {
+            printf("Grid dimensions exceed hardware limits!\n");
+            throw std::runtime_error("Grid dimensions too large");
+        }
+
+        // Launch kernel
+        memset2D_path_gpu<<<gridDim, blockDim>>>(d_res_offset, N, M);
+        cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            printf("Kernel launch error: %s\n", cudaGetErrorString(err));
+            throw std::runtime_error("Kernel launch failed");
+        }
+    /*
+        err = cudaDeviceSynchronize();
+        if (err != cudaSuccess) {
+            printf("Kernel execution error: %s\n", cudaGetErrorString(err));
+            throw std::runtime_error("Kernel execution failed");
+        }*/
+
+    } catch (const std::runtime_error& e) {
+        printf("Error in minplus_NVIDIA_path_gpu: %s\n", e.what());
+        throw;
+    }
+}
 __global__ void minplus_kernel(float *A, float *B, float *C, int m, int n, int k)
 {
     __shared__ float ds_A[TILE_WIDTH][TILE_WIDTH];

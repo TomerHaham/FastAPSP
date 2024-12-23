@@ -37,7 +37,7 @@ int main(int argc, char **argv)
         std::string file;
         int K;
         std::string partitioner;
-        bool directed = false, weighted = false;
+        bool directed = false, weighted = false, version = false;
 
         // Parse command line arguments
         for (int i = 1; i < argc; i++) {
@@ -51,11 +51,13 @@ int main(int argc, char **argv)
                 weighted = (strcmp(argv[i + 1], "true") == 0);
             } else if (strcmp(argv[i], "-partitioner") == 0) {
                 partitioner = argv[i + 1];
+            }else if (strcmp(argv[i], "-version") == 0) {
+                version = (strcmp(argv[i + 1], "true") == 0);
             }
         }
 
         // Initialize graph and partition
-        fap::fapGraphMoreTaskMPI G(file, directed, weighted, K, partitioner);
+        fap::fapGraphMoreTaskMPI G(file, directed, weighted, K, partitioner, version);
         G.init(num_process, K);
 
         if (myProcess == 0) {
@@ -69,9 +71,12 @@ int main(int argc, char **argv)
         // Run the kernel
         auto current_task_array = G.getCurrentTask(myProcess);
         for (int i = 0; i < current_task_array.size(); i++) {
+//	    std::cout <<  current_task_array.size() << std::endl;
             int32_t current_task_id = current_task_array[i];
             G.solveSubGraph(current_task_id, true);
+//	    std::cout << "finish" << std::endl;
         }
+//	std::cout << "finish" << std::endl;
 
         // Synchronize Kokkos tasks
         Kokkos::fence(); // Ensure all Kokkos tasks are completed
@@ -92,7 +97,7 @@ int main(int argc, char **argv)
             double buffer_io_time = 0.0;
             double mapping_time = 0.0;
             long maxRSS = 0;
-
+std::cout << "Total runtime: " << total_runtime << " seconds." << std::endl;
             // Update FlatBufferWriter with runtime metrics
             writer.updateResourceConsumption(buffer_io_time, mapping_time, total_runtime, maxRSS);
 
@@ -106,7 +111,7 @@ int main(int argc, char **argv)
             config.partitioner = partitioner; // Add partitioner information
             config.output_path = "./"; // Set output path, adjust as needed
             config.write_results = true;
-
+	    config.version = version;
             // Set a unique experiment ID using current timestamp
             auto now = std::chrono::system_clock::now();
             auto now_time_t = std::chrono::system_clock::to_time_t(now);

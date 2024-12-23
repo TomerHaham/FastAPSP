@@ -18,6 +18,11 @@ void batched_sssp_cuGraph(
     int *adj_size, int *row_offset, int *col_val, float *weights,
     float *batched_dist, int *batched_path);
 
+void handle_boundry_Nvidia_GPU_data_on_gpu(float *subGraph, int vertexs, int edges, int bdy_num,
+                               int *adj_size,
+                               int *st2ed, int offset,
+                               float *d_res, int *d_rowOffsetArc, int *d_colValueArc, float *d_weightArc);
+
 void handle_boundry_Nvidia_GPU(
     float *subGraph, int vertexs, int edges, int bdy_num,
     int *adj_size, int *row_offset, int *col_val, float *weight,
@@ -25,6 +30,8 @@ void handle_boundry_Nvidia_GPU(
 
 // floyd_kernel
 void floyd_NVIDIA_GPU(int num_node, float *arc);
+
+void floyd_GPU_Nvidia_path_gpu(int num_node, float *d_Len, int *d_Path);
 
 void floyd_GPU_Nvidia_path(int num_node, float *arc, int *path);
 
@@ -40,3 +47,7 @@ void minplus_NVIDIA_GPU(float *mat1, float *mat2, float *res,
     int M, int N, int K);
 void minplus_NVIDIA_path(float *mat1, float *mat2, int *mat2_path,
     float *res, int *res_path, int m, int n, int k);
+
+void minplus_NVIDIA_path_gpu(float *d_mat1, float *d_res, int *d_res_path,
+                             float *d_res_offset, int *d_res_path_offset,
+                             int inner_num, int total_vertexs, int bdy_num);

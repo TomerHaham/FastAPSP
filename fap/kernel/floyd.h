@@ -146,6 +146,18 @@ void floyd_minplus_partition(float *mat1, float *mat2, int *mat2_path,
 #endif
 }
 
+// new version
+void floyd_path_gpu(int num, float *mat, int *path) {
+#ifdef WITH_CUDA
+    floyd_GPU_Nvidia_path_gpu(num, mat, path);
+#elif defined(WITH_HIP)
+    floyd_AMD_path(num, mat, path);
+#else
+    floyd_CPU_path(num, mat, path);
+#endif
+}
+
+
 // compute the floyd
 void floyd_path(int num, float *mat, int *path) {
 #ifdef WITH_CUDA

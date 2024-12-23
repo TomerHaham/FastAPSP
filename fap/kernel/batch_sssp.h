@@ -251,6 +251,32 @@ void batched_sssp_path(int *source_node, int source_node_num,
 #endif
 }
 
+void handle_boundry_path_data_on_gpu(float *subGraph, int *subGraph_path,
+                         int vertexs, int edges, int bdy_num,
+                         int *adj_size, int *row_offset, int *col_val, float *weights,
+                         int *st2ed, int offset,
+                         float *d_res, int *d_rowOffsetArc, int *d_colValueArc, float *d_weightArc) {
+    // TODO(Liu_xiandong): The following macro judgment does not look intuitive
+    // and needs to be changed later
+#ifdef WITH_HIP
+    handle_boundry_AMD_GPU(subGraph, vertexs, edges, bdy_num,
+                            adj_size, row_offset, col_val, weight,
+                            st2ed, offset);
+#elif defined(WITH_CUDA) && !defined(WITH_NVGRAPH)
+    handle_boundry_Nvidia_GPU_data_on_gpu(subGraph, vertexs, edges, bdy_num,
+                              adj_size,
+                              st2ed, offset, d_res, d_rowOffsetArc, d_colValueArc, d_weightArc);
+#else
+    int *source_node = new int[bdy_num];
+    for (int i = 0; i < bdy_num; i++) {
+        source_node[i] = st2ed[offset + i];
+    }
+    batched_sssp_path(source_node, bdy_num, vertexs, edges,
+        adj_size, row_offset, col_val, weights, subGraph, subGraph_path);
+    delete[] source_node;
+#endif
+}
+
 void handle_boundry_path(float *subGraph, int *subGraph_path,
     int vertexs, int edges, int bdy_num,
     int *adj_size, int *row_offset, int *col_val, float *weights,

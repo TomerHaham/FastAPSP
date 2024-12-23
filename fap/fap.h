@@ -24,15 +24,15 @@ class fapGraph{
     // Graph meta and related func.
     // input param.
     std::string input_graph;
-    std::string partitioner;
     std::stringstream input_file;
-
+    std::string partitioner;
     // output param.
     // if num_vertexs is more than max_vertexs_num, split it.
     // the limit is 20k point.
     const int32_t max_vertexs_num_limit = 20000;
     bool is_split;
     bool is_path_needed;
+    bool version;
     std::string output_file;
     std::vector<float> dist;
     std::vector<int32_t> path;
@@ -78,7 +78,7 @@ class fapGraph{
 
     // contruct data struct
     fapGraph(std::string input_graph,
-            bool directed, bool weight, int32_t K, std::string partitioner);
+            bool directed, bool weight, int32_t K, std::string partitioner, bool version);
     fapGraph(int32_t num_vertexs, int64_t num_edges,
             std::vector<int32_t> row_offset, std::vector<int32_t> col_val,
             std::vector<float> weight, int32_t K);
@@ -117,6 +117,9 @@ class fapGraph{
     float getDistanceP2P();
     // return path of Point2Point
     std::vector<int32_t> getPathP2P();
+    // print results 
+    // Tomer added
+    void printResalts();
 
     // verify the result
     bool check_result(float *dist, int *path,

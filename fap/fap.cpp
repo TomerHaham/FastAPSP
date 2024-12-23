@@ -21,11 +21,26 @@
 #include "fap/fap.h"
 #include "fap/utils.h"
 #include "fap/kernel.h"
+#include <cuda.h>
+
+
+
+
+#define checkCudaErrors(call)                                                                   \
+{                                                                                               \
+    cudaError_t cudaStatus = call;                                                              \
+    if (cudaStatus != cudaSuccess)                                                              \
+    {                                                                                           \
+        std::cerr << "CUDA API error: " << cudaGetErrorString(cudaStatus) << " at "            \
+                  << __FILE__ << " line " << __LINE__ << "." << std::endl;                      \
+        exit(EXIT_FAILURE);                                                                     \
+    }                                                                                           \
+}
 
 namespace fap {
 
 fapGraph::fapGraph(std::string input_graph,
-                  bool directed, bool weighted, int32_t K, std::string partitioner) {
+                  bool directed, bool weighted, int32_t K, std::string partitioner, bool version) {
   // build graph from file.
   int vertexs;
   int edges;
@@ -35,6 +50,7 @@ fapGraph::fapGraph(std::string input_graph,
   this->num_edges = edges;
   this->K = K;
   this->partitioner = partitioner;
+  this->version = version;
 
   this->adj_size.resize(vertexs);
   this->row_offset.resize(vertexs + 1);
@@ -92,9 +108,9 @@ std::vector<int> fapGraph::getGraphId() {
 // run fast APSP algorithm.
 void fapGraph::run(float *subgraph_dist,
                       int *subgraph_path,
-                      const int32_t sub_garph_id) {
-  const int bdy_num = C_BlockBdy_num[sub_garph_id];
-  const int sub_vertexs = C_BlockVer_num[sub_garph_id];
+                      const int32_t sub_graph_id) {
+  const int bdy_num = C_BlockBdy_num[sub_graph_id];
+  const int sub_vertexs = C_BlockVer_num[sub_graph_id];
   const int inner_num = sub_vertexs - bdy_num;
   int64_t subgraph_dist_size = (int64_t)sub_vertexs * this->num_vertexs;
   int64_t inner_to_bdy_size = (int64_t)inner_num * bdy_num;
@@ -103,19 +119,189 @@ void fapGraph::run(float *subgraph_dist,
   vector<float> inner_to_inner_dist(inner_to_inner_size, fap::MAXVALUE);
   vector<int> inner_to_inner_path(inner_to_inner_size, -1);
 
+  // new version
+
+  if (this->version){
+float *d_res = nullptr;
+    int *d_rowOffsetArc = nullptr, *d_colValueArc = nullptr;
+    float *d_weightArc = nullptr;
+    float *d_subMat = nullptr;
+    int *d_subMat_path = nullptr;
+    int *d_graph_id = nullptr, *d_st2ed = nullptr, *d_ed2st = nullptr, *d_adj_size = nullptr;
+    int *d_subGraph_path = nullptr;
+
+    try {
+
+        checkCudaErrors(cudaMalloc((void **)&d_res, subgraph_dist_size * sizeof(float)));
+        checkCudaErrors(cudaMalloc((void **)&d_rowOffsetArc, this->num_vertexs * sizeof(int)));
+        checkCudaErrors(cudaMalloc((void **)&d_colValueArc, this->num_edges * sizeof(int)));
+        checkCudaErrors(cudaMalloc((void **)&d_weightArc, this->num_edges * sizeof(float)));
+        checkCudaErrors(cudaMemcpy(d_rowOffsetArc, row_offset.data(), this->num_vertexs * sizeof(int), cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpy(d_colValueArc, col_val.data(), this->num_edges * sizeof(int), cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpy(d_weightArc, weight.data(), this->num_edges * sizeof(float), cudaMemcpyHostToDevice));
+
+
+        // Handle boundary data on GPU
+        handle_boundry_path_data_on_gpu(subgraph_dist, subgraph_path,
+                            this->num_vertexs, this->num_edges, bdy_num,
+                            adj_size.data(), row_offset.data(), col_val.data(),
+                            weight.data(), st2ed.data(), C_BlockVer_offset[sub_graph_id],
+                            d_res, d_rowOffsetArc, d_colValueArc, d_weightArc);
+
+        // Allocate and copy data for graph arrays
+        checkCudaErrors(cudaMalloc((void**)&d_graph_id, graph_id.size() * sizeof(int)));
+        checkCudaErrors(cudaMalloc((void**)&d_st2ed, st2ed.size() * sizeof(int)));
+        checkCudaErrors(cudaMalloc((void**)&d_ed2st, ed2st.size() * sizeof(int)));
+        checkCudaErrors(cudaMalloc((void**)&d_adj_size, adj_size.size() * sizeof(int)));
+        checkCudaErrors(cudaMalloc((void**)&d_subMat, sub_vertexs * sub_vertexs * sizeof(float)));
+        checkCudaErrors(cudaMalloc((void**)&d_subMat_path, sub_vertexs * sub_vertexs * sizeof(int)));
+        checkCudaErrors(cudaMalloc((void**)&d_subGraph_path, subgraph_dist_size * sizeof(int)));
+        checkCudaErrors(cudaMemcpy(d_subGraph_path, subgraph_path, sub_vertexs * this->num_vertexs * sizeof(int), cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpy(d_graph_id, graph_id.data(), graph_id.size() * sizeof(int), cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpy(d_st2ed, st2ed.data(), st2ed.size() * sizeof(int), cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpy(d_ed2st, ed2st.data(), ed2st.size() * sizeof(int), cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpy(d_adj_size, adj_size.data(), adj_size.size() * sizeof(int), cudaMemcpyHostToDevice));
+
+        int start = C_BlockVer_offset[sub_graph_id];
+
+        // Launch kernel
+        LaunchMysubMatBuildKernel(
+            d_subMat, d_subMat_path, d_res,
+            d_subGraph_path, d_rowOffsetArc, d_colValueArc,
+            d_weightArc, sub_vertexs, bdy_num, this->num_vertexs,
+            d_graph_id, d_st2ed, d_ed2st, d_adj_size, graph_id, start, this->num_edges);
+
+        checkCudaErrors(cudaFree(d_graph_id));
+        //checkCudaErrors(cudaFree(d_ed2st));
+        checkCudaErrors(cudaFree(d_adj_size));
+        checkCudaErrors(cudaFree(d_rowOffsetArc));
+        checkCudaErrors(cudaFree(d_weightArc));
+        checkCudaErrors(cudaFree(d_colValueArc));
+
+        // Note: d_subMat, d_subMat_path, d_res, and d_subGraph_path are kept alive
+        // for use in subsequent operations
+
+    } catch (const std::runtime_error& e) {
+        printf("Error in fapGraph::run: %s\n", e.what());
+        // Clean up any allocated memory in case of error
+        if (d_subMat) checkCudaErrors(cudaFree(d_subMat));
+        if (d_subMat_path) checkCudaErrors(cudaFree(d_subMat_path));
+        if (d_subGraph_path) checkCudaErrors(cudaFree(d_subGraph_path));
+        if (d_res) checkCudaErrors(cudaFree(d_res));
+        throw;
+    }
+
+    // 2.2 run floyd algorithm
+    fap::floyd_path_gpu(sub_vertexs, d_subMat, d_subMat_path);
+    // Use the wrapper function to decode the submatrix on the GPU
+LaunchMysubMatDecodePathKernel(
+    d_subMat, d_subMat_path,
+    d_res, d_subGraph_path,
+    d_ed2st, C_BlockVer_offset[sub_graph_id],
+    sub_vertexs, sub_vertexs, this->num_vertexs);
+    checkCudaErrors(cudaFree(d_ed2st));
+    checkCudaErrors(cudaFree(d_subMat_path));
+
+    //checkCudaErrors(cudaMemcpy(inner_to_inner_dist.data(), d_subMat, sub_vertexs * sub_vertexs * sizeof(float), cudaMemcpyDeviceToHost));
+    //checkCudaErrors(cudaMemcpy(inner_to_inner_path.data(), d_subMat_path, sub_vertexs * sub_vertexs * sizeof(int), cudaMemcpyDeviceToHost));
+
+
+    // stage 3. run min-plus algorithm in boundry points to all other points.
+    // 3.1 move data from subMat to a thin matrix.
+// Allocate d_mat1 first
+float* d_mat1 = nullptr;
+checkCudaErrors(cudaMalloc((void**)&d_mat1, inner_num * bdy_num * sizeof(float)));
+
+// Call the kernel launch function
+LaunchMyMat1BuildKernel(d_mat1, d_subMat, inner_num, bdy_num, sub_vertexs);
+
+// Now you can safely free d_subMat
+checkCudaErrors(cudaFree(d_subMat));
+//checkCudaErrors(cudaFree(d_subMat_path));
+    int64_t offset = (int64_t)bdy_num * this->num_vertexs;
+
+    // 3.2 run min-plus
+    // GPU global mem / sizeof(float)
+// stage 3.2 run min-plus
+const double GPU_MAX_NUM = 4e9;
+const double MEM_NUM = GPU_MAX_NUM / this->num_vertexs - bdy_num;
+int part_num = 1;
+#ifdef WITH_GPU
+part_num = static_cast<int>(
+    ceil(static_cast<double>(inner_num) / MEM_NUM));
+#endif
+//printf("Before min-plus:\n");
+//printf("d_res address: %p\n", (void*)d_res);
+//printf("d_subGraph_path address: %p\n", (void*)d_subGraph_path);
+
+if (part_num == 1) {
+    fap::min_plus_path_advanced_gpu(
+        d_mat1,           // GPU pointer for inner_to_bdy_dist
+        d_res,            // GPU pointer for subgraph_dist
+        d_subGraph_path,  // GPU pointer for subgraph_path
+        d_res + offset,   // GPU pointer for subgraph_dist + offset
+        d_subGraph_path + offset, // GPU pointer for subgraph_path + offset
+        inner_num, this->num_vertexs, bdy_num);
+} else {
+    int block_size = inner_num / part_num;
+    int last_size = inner_num - block_size * (part_num - 1);
+
+    for (int i = 0; i < part_num; i++) {
+        int64_t offset_value = offset + (int64_t)i * block_size * this->num_vertexs;
+        if (i == part_num - 1) {
+            fap::min_plus_path_advanced_gpu(
+                d_mat1 + i * block_size * bdy_num,
+                d_res,
+                d_subGraph_path,
+                d_res + offset_value,
+                d_subGraph_path + offset_value,
+                last_size, this->num_vertexs, bdy_num);
+        } else {
+            fap::min_plus_path_advanced_gpu(
+                d_mat1 + i * block_size * bdy_num,
+                d_res,
+                d_subGraph_path,
+                d_res + offset_value,
+                d_subGraph_path + offset_value,
+                block_size, this->num_vertexs, bdy_num);
+        }
+    }
+}
+
+// After min-plus
+//printf("After min-plus:\n");
+//printf("d_res address: %p\n", (void*)d_res);
+//printf("d_subGraph_path address: %p\n", (void*)d_subGraph_path);
+//checkCudaErrors(cudaDeviceSynchronize());
+// Copy the final results back to the host
+checkCudaErrors(cudaMemcpy(subgraph_dist, d_res, subgraph_dist_size * sizeof(float), cudaMemcpyDeviceToHost));
+checkCudaErrors(cudaMemcpy(subgraph_path, d_subGraph_path, subgraph_dist_size * sizeof(int), cudaMemcpyDeviceToHost));
+
+// Free GPU memory for d_res and d_subGraph_path
+checkCudaErrors(cudaFree(d_mat1));
+checkCudaErrors(cudaFree(d_res));
+checkCudaErrors(cudaFree(d_subGraph_path));
+  // 3.3 move data from floyd matrix to subgraph matrix.
+  /*
+  fap::MysubMatDecode_path(
+      inner_to_inner_dist.data(), inner_to_inner_path.data(),
+      subgraph_dist, subgraph_path,
+      C_BlockVer_offset[sub_graph_id], sub_vertexs,
+      sub_vertexs, this->num_vertexs, st2ed.data());*/
+}else{
   // stage 1. run sssp algorithm in boundry points.
   fap::handle_boundry_path(
             subgraph_dist, subgraph_path,
             this->num_vertexs, this->num_edges, bdy_num,
             adj_size.data(), row_offset.data(), col_val.data(), weight.data(),
-            st2ed.data(), C_BlockVer_offset[sub_garph_id]);
+            st2ed.data(), C_BlockVer_offset[sub_graph_id]);
 
   // stage 2. run floyd algorithm in all points of subgraph.
   // 2.1 move data from subgraph matrix to floyd matrix.
   fap::MysubMatBuild_path(
       inner_to_inner_dist.data(), inner_to_inner_path.data(),
       subgraph_dist, subgraph_path,
-      graph_id.data(), C_BlockVer_offset[sub_garph_id],
+      graph_id.data(), C_BlockVer_offset[sub_graph_id],
       sub_vertexs, bdy_num,
       this->num_vertexs, st2ed.data(), ed2st.data(),
       adj_size.data(), row_offset.data(), col_val.data(), weight.data());
@@ -177,8 +363,10 @@ void fapGraph::run(float *subgraph_dist,
   fap::MysubMatDecode_path(
       inner_to_inner_dist.data(), inner_to_inner_path.data(),
       subgraph_dist, subgraph_path,
-      C_BlockVer_offset[sub_garph_id], sub_vertexs,
+      C_BlockVer_offset[sub_graph_id], sub_vertexs,
       sub_vertexs, this->num_vertexs, st2ed.data());
+}
+
 }
 
 // run fast APSP algorithm.
@@ -195,16 +383,16 @@ int32_t fapGraph::solve(bool is_path_needed) {
 }
 
 // run fast APSP algorithm in one subgraph.
-int32_t fapGraph::solveSubGraph(int32_t sub_garph_id,
+int32_t fapGraph::solveSubGraph(int32_t sub_graph_id,
                               bool is_path_needed) {
   // init data.
-  const int sub_vertexs = C_BlockVer_num[sub_garph_id];
+  const int sub_vertexs = C_BlockVer_num[sub_graph_id];
   int64_t subgraph_dist_size = (int64_t)sub_vertexs * this->num_vertexs;
   this->subgraph_dist.resize(subgraph_dist_size);
   this->subgraph_path.resize(subgraph_dist_size);
-  this->current_subgraph_id = sub_garph_id;
+  this->current_subgraph_id = sub_graph_id;
 
-  run(subgraph_dist.data(), subgraph_path.data(), sub_garph_id);
+  run(subgraph_dist.data(), subgraph_path.data(), sub_graph_id);
 }
 
 std::vector<int32_t> fapGraph::getMapping() {
@@ -221,9 +409,9 @@ std::vector<int32_t> fapGraph::getAllPath() {
   return this->path;
 }
 
-std::vector<int32_t> fapGraph::getSubGraphIndex(int32_t sub_garph_id) {
-  int offset = C_BlockVer_offset[sub_garph_id];
-  int size = C_BlockVer_num[sub_garph_id];
+std::vector<int32_t> fapGraph::getSubGraphIndex(int32_t sub_graph_id) {
+  int offset = C_BlockVer_offset[sub_graph_id];
+  int size = C_BlockVer_num[sub_graph_id];
   std::vector<int32_t> sub_graph_st2ed(st2ed.begin() + offset,
                                         st2ed.begin() + offset + size);
   return sub_graph_st2ed;
@@ -233,13 +421,13 @@ int32_t fapGraph::getCurrentSubGraphId() {
   return this->current_subgraph_id;
 }
 
-std::vector<float> fapGraph::getSubGraphDistance(int32_t sub_garph_id) {
-  assert(this->current_subgraph_id == sub_garph_id);
+std::vector<float> fapGraph::getSubGraphDistance(int32_t sub_graph_id) {
+  assert(this->current_subgraph_id == sub_graph_id);
   return this->subgraph_dist;
 }
 
-std::vector<int32_t> fapGraph::getSubGraphPath(int32_t sub_garph_id) {
-  assert(this->current_subgraph_id == sub_garph_id);
+std::vector<int32_t> fapGraph::getSubGraphPath(int32_t sub_graph_id) {
+  assert(this->current_subgraph_id == sub_graph_id);
   return this->subgraph_path;
 }
 
@@ -260,6 +448,29 @@ std::vector<int32_t> fapGraph::getPathFromOnePoint(int32_t vectex_id) {
       subgraph_path.begin() + current_index + this->num_vertexs);
   return result;
 }
+
+// Tomer added
+void fapGraph::printResalts(){
+  for (int32_t i = 0; i < num_vertexs; ++i){
+    for (int32_t j = 0; j < num_vertexs; ++j ){
+      printf("Distances from node %d: ", i);
+      printf(" to node %d: ", j);
+      printf(" to node %d: ", j);
+      printf("%.2f ", this->dist[num_vertexs*i + j]);
+      printf("\n");
+    }
+  }
+}
+/*
+void fapGraph::printResalts(){
+  for (int32_t i = 0; i < num_vertexs; ++i){
+    printf("Distances from node %d:\n", i + 1);
+    for (int32_t j = 0; j < num_vertexs; ++j ){
+      printf("  to node %d: %.2f\n", j + 1, dist[num_vertexs * i + j]);
+    }
+  }
+}
+*/
 
 float fapGraph::getDistanceP2P() {
   // TODO(Liu-xiandong):

@@ -8,6 +8,10 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include "device_launch_parameters.h"
+#include <thrust/device_ptr.h>
+#include <thrust/find.h>
+#include <thrust/execution_policy.h>
+
 #ifdef WITH_NVGRAPH
 #include "nvgraph.h"
 #endif
@@ -279,6 +283,149 @@ void multi_source_Nvidia_sssp(int numFrom, int *fromNode, int vertexs, int edges
     checkCudaErrors(cudaFree(d_res));
     free(mask);
 }
+// new version
+/*
+void multi_source_Nvidia_sssp_data_on_gpu(int numFrom, int *fromNode, int vertexs, int edges,
+                              int *rowOffsetArc, int *colValueArc, float *weightArc,
+                              float *shortLenTable, float *d_res, int *d_rowOffsetArc,
+                              int *d_colValueArc, float *d_weightArc) {
+    int numberOfBlock;
+    float *d_weightRow = nullptr;
+    float *d_weightRowTemp = nullptr;
+    bool *d_mask = nullptr;
+    bool *mask = (bool *)malloc(vertexs * sizeof(bool));
+
+
+    // Allocate intermediate GPU memory
+    checkCudaErrors(cudaMalloc((void **)&d_rowOffsetArc, vertexs * sizeof(int)));
+    checkCudaErrors(cudaMalloc((void **)&d_colValueArc, edges * sizeof(int)));
+    checkCudaErrors(cudaMalloc((void **)&d_weightArc, edges * sizeof(float)));
+    checkCudaErrors(cudaMalloc((void **)&d_weightRow, vertexs * sizeof(float)));
+    checkCudaErrors(cudaMalloc((void **)&d_weightRowTemp, vertexs * sizeof(float)));
+    checkCudaErrors(cudaMalloc((void **)&d_mask, vertexs * sizeof(bool)));
+    checkCudaErrors(cudaMalloc((void **)&d_res, numFrom * vertexs * sizeof(float)));
+
+
+    // Copy rowOffsetArc, colValueArc, and weightArc to device memory
+
+    checkCudaErrors(cudaMemcpy(d_rowOffsetArc, rowOffsetArc, vertexs * sizeof(int), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_colValueArc, colValueArc, edges * sizeof(int), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_weightArc, weightArc, edges * sizeof(float), cudaMemcpyHostToDevice));
+
+    // Initialize kernel parameters
+    const int blockDim = 32;
+    numberOfBlock = (vertexs + blockDim - 1) / blockDim;
+
+    // Run SSSP for each source node
+    for (int k = 0; k < numFrom; k++) {
+        bool isEmpty = false;
+
+        // Initialize GPU memory for the current iteration
+        initKernel<<<dim3(numberOfBlock, 1), dim3(blockDim, 1)>>>(
+            d_res + k * vertexs, MAX_VALUE, d_weightRowTemp, MAX_VALUE, d_mask, fromNode[k], vertexs);
+
+        // Perform Dijkstra iterations until the mask is empty
+        while (!isEmpty) {
+            dijkstraKernel1<<<dim3(numberOfBlock, 1), dim3(blockDim, 1)>>>(
+                d_rowOffsetArc, d_colValueArc, d_weightArc,
+                d_res + k * vertexs, d_weightRowTemp, d_mask, vertexs);
+
+            dijkstraKernel2<<<dim3(numberOfBlock, 1), dim3(blockDim, 1)>>>(
+                d_res + k * vertexs, d_weightRowTemp, d_mask, vertexs);
+
+            checkCudaErrors(cudaMemcpy(mask, d_mask, vertexs * sizeof(bool), cudaMemcpyDeviceToHost));
+
+            // Check if any mask remains active
+            isEmpty = true;
+            for (int i = 0; i < vertexs; i++) {
+                if (mask[i]) {
+                    isEmpty = false;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Free intermediate GPU memory
+    checkCudaErrors(cudaFree(d_weightRow));
+    checkCudaErrors(cudaFree(d_weightRowTemp));
+    checkCudaErrors(cudaFree(d_mask));
+
+    // Free host memory
+    free(mask);
+}*/
+
+void multi_source_Nvidia_sssp_data_on_gpu(int numFrom, int *fromNode, int vertexs, int edges,
+    float *shortLenTable, float *d_res, int *d_rowOffsetArc,
+    int *d_colValueArc, float *d_weightArc) {
+
+    int numberOfBlock;
+    float *d_weightRow = nullptr;
+    float *d_weightRowTemp = nullptr;
+    bool *d_mask = nullptr;
+    bool *mask = (bool *)malloc(vertexs * sizeof(bool));
+
+    // Only allocate if the pointers are null
+
+    // Allocate temporary buffers
+    checkCudaErrors(cudaMalloc((void **)&d_weightRow, vertexs * sizeof(float)));
+    checkCudaErrors(cudaMalloc((void **)&d_weightRowTemp, vertexs * sizeof(float)));
+    checkCudaErrors(cudaMalloc((void **)&d_mask, vertexs * sizeof(bool)));
+
+    // Initialize kernel parameters
+    const int blockDim = 32;
+    numberOfBlock = (vertexs + blockDim - 1) / blockDim;
+
+    // Run SSSP for each source node
+    for (int k = 0; k < numFrom; k++) {
+        bool isEmpty = false;
+
+        // Initialize GPU memory for the current iteration
+        initKernel<<<dim3(numberOfBlock, 1), dim3(blockDim, 1)>>>(
+            d_res + k * vertexs, MAX_VALUE, d_weightRowTemp, MAX_VALUE, d_mask, fromNode[k], vertexs);
+
+        // Perform Dijkstra iterations until the mask is empty
+        while (!isEmpty) {
+            dijkstraKernel1<<<dim3(numberOfBlock, 1), dim3(blockDim, 1)>>>(
+                d_rowOffsetArc, d_colValueArc, d_weightArc,
+                d_res + k * vertexs, d_weightRowTemp, d_mask, vertexs);
+            
+            dijkstraKernel2<<<dim3(numberOfBlock, 1), dim3(blockDim, 1)>>>(
+                d_res + k * vertexs, d_weightRowTemp, d_mask, vertexs);
+            
+            // Use thrust to check if any mask bits are set (more efficient than copying to host)
+            isEmpty = thrust::find(thrust::device, d_mask, d_mask + vertexs, true) == d_mask + vertexs;
+        }
+    }
+    
+    // Free temporary GPU memory
+    checkCudaErrors(cudaFree(d_weightRow));
+    checkCudaErrors(cudaFree(d_weightRowTemp));
+    checkCudaErrors(cudaFree(d_mask));
+    
+    // Free host memory
+    free(mask);
+    
+    // Note: We don't free d_res, d_rowOffsetArc, d_colValueArc, or d_weightArc
+    // as they are managed by the caller
+}
+// new version
+void handle_boundry_Nvidia_GPU_data_on_gpu(float *subGraph, int vertexs, int edges, int bdy_num,
+                               int *adj_size,
+                               int *st2ed, int offset,
+                               float *d_res, int *d_rowOffsetArc, int *d_colValueArc, float *d_weightArc) {
+    int *sources = new int[bdy_num];
+    for (int i = 0; i < bdy_num; i++) {
+        sources[i] = st2ed[offset + i];
+    }
+
+    // Call GPU-based SSSP
+    multi_source_Nvidia_sssp_data_on_gpu(bdy_num, sources, vertexs, edges,
+                             subGraph, d_res, d_rowOffsetArc, d_colValueArc, d_weightArc);
+    delete[] sources;
+}
+
+
 
 void handle_boundry_Nvidia_GPU(float *subGraph, int vertexs, int edges, int bdy_num,
                                        int *adj_size, int *row_offset, int *col_val, float *weight,

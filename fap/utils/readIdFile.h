@@ -119,7 +119,7 @@ void Graph_decomposition(int *id,
             BlockVer[subGraph_id].push_back(i);
         }
     } 
-    else if (partitioner == "KaHIP" || partitioner == "KaHIP_soc_s" || partitioner == "KaHIP_soc_f" ||partitioner == "KaHIP_f" || partitioner == "metis") {
+    else if (partitioner == "KaHIP" || partitioner == "KaHIP_eco" || partitioner == "KaHIP_soc_eco" || partitioner == "KaHIP_soc_s" || partitioner == "KaHIP_soc_f" ||partitioner == "KaHIP_f" || partitioner == "metis") {
         std::vector<idx_t> xadj(1);
         std::vector<idx_t> adjncy;
 
@@ -163,10 +163,10 @@ void Graph_decomposition(int *id,
         idx_t objval;
         std::vector<idx_t> part(nVertices, 0);
 
-        if (partitioner == "KaHIP" || partitioner == "KaHIP_soc_s" || partitioner == "KaHIP_soc_f" ||partitioner == "KaHIP_f") {
+        if (partitioner == "KaHIP" || partitioner == "KaHIP_soc_s" || partitioner == "KaHIP_soc_f" || partitioner == "KaHIP_f" || partitioner == "KaHIP_eco" || partitioner == "KaHIP_soc_eco") {
             double imbalance = 0.003;  // 3% imbalance
             bool suppress_output = true;  // Suppress output to stdout
-            int seed = 1000;  // Random seed
+            int seed = 42;  // Random seed
             int mode = 2;  // Mode (e.g., FAST mode in KaHIP)
             int edgecut = 0;
 	    if(partitioner == "KaHIP_f"){
@@ -175,8 +175,11 @@ void Graph_decomposition(int *id,
 		mode = 3;
 	    }else if(partitioner == "KaHIP_soc_s"){
 		mode = 5;
-            } 
-            // Call KaHIP partitioner
+            }else if(partitioner == "KaHIP_soc_eco"){
+                mode = 4;
+            }else if(partitioner == "KaHIP_eco"){
+                mode = 2;
+            }
             kaffpa(&nVertices, nullptr, xadj.data(), nullptr, adjncy.data(), &nParts,
                    &imbalance, suppress_output, seed, mode, &edgecut, part.data());
         } 
