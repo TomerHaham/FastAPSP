@@ -262,42 +262,140 @@ void minplus_NVIDIA_path(float *mat1, float *mat2, int *mat2_path,
 
 // 2. Modified kernel launch with proper error checking
 void minplus_NVIDIA_path_gpu(float *d_mat1, float *d_res, int *d_res_path,
-                             float *d_res_offset, int *d_res_path_offset,
-                             int inner_num, int total_vertexs, int bdy_num) {
-    const int M = inner_num;
-    const int N = total_vertexs;
+                           float *d_res_offset, int *d_res_path_offset,
+                           int m, int n, int k) {
+    printf("\nmin_plus Debug Info:\n");
+    printf("Matrix dimensions: m=%d, n=%d, k=%d\n", m, n, k);
+    
+    // Print input matrices
+    float* h_mat1 = new float[m * k];
+    float* h_res = new float[k * n];
+    cudaMemcpy(h_mat1, d_mat1, m * k * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_res, d_res, k * n * sizeof(float), cudaMemcpyDeviceToHost);
+    
+    printf("First row of mat1 (first 5 elements):\n");
+    for(int i = 0; i < min(5, k); i++) {
+        printf("%.2f ", h_mat1[i]);
+    }
+    printf("\n");
+    
+    printf("First row of res (first 5 elements):\n");
+    for(int i = 0; i < min(5, n); i++) {
+        printf("%.2f ", h_res[i]);
+    }
+    printf("\n");
 
+    float *d_a;
+    float *d_b;
+    float *d_c;
+    int *d_b_path;
+    int *d_c_path;
+    const int BLOCK_SIZE_M = 32;
+    const int BLOCK_SIZE_K = 32;
+    const int BLOCK_SIZE_N = 32;
+    const int THREAD_SIZE_X = 4;
+    const int THREAD_SIZE_Y = 4;
+    const bool ENABLE_DOUBLE_BUFFER = false;
+
+    long long m_padding = ((m % BLOCK_SIZE_M == 0) ? m : (m / BLOCK_SIZE_M + 1) * BLOCK_SIZE_M);
+    long long n_padding = ((n % BLOCK_SIZE_N == 0) ? n : (n / BLOCK_SIZE_N + 1) * BLOCK_SIZE_N);
+    long long k_padding = ((k % BLOCK_SIZE_K == 0) ? k : (k / BLOCK_SIZE_K + 1) * BLOCK_SIZE_K);
+
+    printf("Padded dimensions: m_padding=%lld, n_padding=%lld, k_padding=%lld\n", 
+           m_padding, n_padding, k_padding);
+
+    // Allocate with proper error checking
     try {
-        const int BLOCK_SIZE = 32;
-        dim3 gridDim((N + BLOCK_SIZE - 1) / BLOCK_SIZE, 
-                     (M + BLOCK_SIZE - 1) / BLOCK_SIZE);
-        dim3 blockDim(BLOCK_SIZE, BLOCK_SIZE);
+        checkCudaErrors(cudaMalloc(&d_a, m_padding * k_padding * sizeof(float)));
+        checkCudaErrors(cudaMalloc(&d_b, k_padding * n_padding * sizeof(float)));
+        checkCudaErrors(cudaMalloc(&d_c, m_padding * n_padding * sizeof(float)));
+        checkCudaErrors(cudaMalloc(&d_b_path, k_padding * n_padding * sizeof(int)));
+        checkCudaErrors(cudaMalloc(&d_c_path, m_padding * n_padding * sizeof(int)));
 
-        // Check grid dimensions
-        if (gridDim.x > 65535 || gridDim.y > 65535) {
-            printf("Grid dimensions exceed hardware limits!\n");
-            throw std::runtime_error("Grid dimensions too large");
-        }
+        // Initialize matrices
+        memset2D_path<<<dim3(k_padding / 32, m_padding / 32), dim3(32, 32)>>>(d_a, k_padding);
+        memset2D_path<<<dim3(n_padding / 32, k_padding / 32), dim3(32, 32)>>>(d_b, n_padding);
+        memset2D_path<<<dim3(n_padding / 32, m_padding / 32), dim3(32, 32)>>>(d_c, n_padding);
+        cudaDeviceSynchronize();
 
-        // Launch kernel
-        memset2D_path_gpu<<<gridDim, blockDim>>>(d_res_offset, N, M);
-        cudaError_t err = cudaGetLastError();
-        if (err != cudaSuccess) {
-            printf("Kernel launch error: %s\n", cudaGetErrorString(err));
-            throw std::runtime_error("Kernel launch failed");
+        // Copy data with proper error checking
+        checkCudaErrors(cudaMemcpy2D(d_a, sizeof(float) * k_padding,
+                                   d_mat1, sizeof(float) * k,
+                                   sizeof(float) * k, m,
+                                   cudaMemcpyDeviceToDevice));
+        
+        checkCudaErrors(cudaMemcpy2D(d_b, sizeof(float) * n_padding,
+                                   d_res, sizeof(float) * n,
+                                   sizeof(float) * n, k,
+                                   cudaMemcpyDeviceToDevice));
+        
+        checkCudaErrors(cudaMemcpy2D(d_b_path, sizeof(int) * n_padding,
+                                   d_res_path, sizeof(int) * n,
+                                   sizeof(int) * n, k,
+                                   cudaMemcpyDeviceToDevice));
+
+        // Verify data after copy
+        float* verify_a = new float[k_padding];
+        cudaMemcpy(verify_a, d_a, k_padding * sizeof(float), cudaMemcpyDeviceToHost);
+        printf("First row of d_a after copy (first 5):\n");
+        for(int i = 0; i < min(5, int(k_padding)); i++) {
+            printf("%.2f ", verify_a[i]);
         }
-    /*
-        err = cudaDeviceSynchronize();
-        if (err != cudaSuccess) {
-            printf("Kernel execution error: %s\n", cudaGetErrorString(err));
-            throw std::runtime_error("Kernel execution failed");
-        }*/
+        printf("\n");
+        delete[] verify_a;
+
+        dim3 dimBlock(BLOCK_SIZE_N / THREAD_SIZE_X, BLOCK_SIZE_M / THREAD_SIZE_Y);
+        dim3 dimGrid(n_padding / BLOCK_SIZE_N, m_padding / BLOCK_SIZE_M);
+        printf("Grid dims: (%d, %d), Block dims: (%d, %d)\n", 
+               dimGrid.x, dimGrid.y, dimBlock.x, dimBlock.y);
+
+        MatrixMulCUDA6_path<BLOCK_SIZE_M, BLOCK_SIZE_K, BLOCK_SIZE_N, 
+                           THREAD_SIZE_Y, THREAD_SIZE_X, ENABLE_DOUBLE_BUFFER>
+            <<<dimGrid, dimBlock>>>(d_a, d_b, d_b_path, d_c, d_c_path, k_padding, n_padding);
+        
+        cudaDeviceSynchronize();
+        
+        checkCudaErrors(cudaMemcpy2D(d_res_offset, sizeof(float) * n,
+                                   d_c, n_padding * sizeof(float),
+                                   sizeof(float) * n, m,
+                                   cudaMemcpyDeviceToDevice));
+        
+        checkCudaErrors(cudaMemcpy2D(d_res_path_offset, sizeof(int) * n,
+                                   d_c_path, n_padding * sizeof(int),
+                                   sizeof(int) * n, m,
+                                   cudaMemcpyDeviceToDevice));
+
+        // Verify final result
+        float* verify_c = new float[n];
+        cudaMemcpy(verify_c, d_res_offset, n * sizeof(float), cudaMemcpyDeviceToHost);
+        printf("First row of result (first 5):\n");
+        for(int i = 0; i < min(5, n); i++) {
+            printf("%.2f ", verify_c[i]);
+        }
+        printf("\n");
+        delete[] verify_c;
+
+        // Cleanup
+        cudaFree(d_a);
+        cudaFree(d_b);
+        cudaFree(d_c);
+        cudaFree(d_b_path);
+        cudaFree(d_c_path);
 
     } catch (const std::runtime_error& e) {
-        printf("Error in minplus_NVIDIA_path_gpu: %s\n", e.what());
+        printf("Error in minplus: %s\n", e.what());
+        cudaFree(d_a);
+        cudaFree(d_b);
+        cudaFree(d_c);
+        cudaFree(d_b_path);
+        cudaFree(d_c_path);
         throw;
     }
+
+    delete[] h_mat1;
+    delete[] h_res;
 }
+
 __global__ void minplus_kernel(float *A, float *B, float *C, int m, int n, int k)
 {
     __shared__ float ds_A[TILE_WIDTH][TILE_WIDTH];

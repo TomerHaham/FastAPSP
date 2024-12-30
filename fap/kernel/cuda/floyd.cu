@@ -284,51 +284,62 @@ __global__ void floyd_baseline(const int k, float *dist, int *path, const int di
 
 // new version
 void floyd_GPU_Nvidia_path_gpu(int num_node, float *d_Len, int *d_Path) {
-    const unsigned int n = num_node * num_node;
+    unsigned int n = num_node * num_node;
+    
+    // Create temporary device arrays
+    float *temp_d_Len;
+    int *temp_d_Path;
+    checkCudaErrors(cudaMalloc(&temp_d_Len, n * sizeof(float)));
+    checkCudaErrors(cudaMalloc(&temp_d_Path, n * sizeof(int)));
+    
+    // Copy from input device arrays to temp arrays
+    checkCudaErrors(cudaMemcpy(temp_d_Len, d_Len, n * sizeof(float), cudaMemcpyDeviceToDevice));
+    checkCudaErrors(cudaMemcpy(temp_d_Path, d_Path, n * sizeof(int), cudaMemcpyDeviceToDevice));
 
-	const unsigned int numberOfBlocks = ceil((float)num_node / (float)TILE_WIDTH);
-	unsigned int sub_dim;
+    const unsigned int numberOfBlocks = ceil((float)num_node / (float)TILE_WIDTH);
+    unsigned int sub_dim;
 
-#ifdef PROFILER
-    cudaEvent_t start, stop;   // Declare
-    cudaEventCreate(&start);   // Set up
-    cudaEventCreate(&stop);    // Set up
-    cudaEventRecord(start, 0); // Start
-#endif
-	if (numberOfBlocks == 1)
-	{
-		dim3 Grid_square(1, 1);
-		dim3 Block_square(TILE_WIDTH, TILE_WIDTH);
-		fw_kernel1<<<Grid_square, Block_square>>>(d_Len, d_Path, num_node, num_node);
-	}
-	else
-	{
-		for (int B = 0; B < numberOfBlocks; B++)
-		{
-			if (B == (numberOfBlocks - 1) && num_node % TILE_WIDTH != 0)
-			{
-				sub_dim = num_node % TILE_WIDTH;
-			}
-			else
-			{
-				sub_dim = TILE_WIDTH;
-			}
-			FW_kernel1A2<<<dim3(numberOfBlocks - 1, 2), dim3(TILE_WIDTH, TILE_WIDTH)>>>(B, d_Len, d_Path, num_node, sub_dim);
-			fw_kernel3<<<dim3(numberOfBlocks - 1, numberOfBlocks - 1), dim3(TILE_WIDTH, TILE_WIDTH)>>>(B, d_Len, d_Path, num_node, sub_dim);
-		}
-	}
+    #ifdef PROFILER
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    cudaEventRecord(start, 0);
+    #endif
 
-#ifdef PROFILER
-	cudaEventRecord(stop, 0);
-	cudaEventSynchronize(stop);
-	float eTime;
-	cudaEventElapsedTime(&eTime, start, stop);
-	printf("the floyd flops is: %f\n", (float)num_node * num_node * num_node * 2.0 * 1000.0 / eTime);
-#endif
+    if (numberOfBlocks == 1) {
+        dim3 Grid_square(1, 1);
+        dim3 Block_square(TILE_WIDTH, TILE_WIDTH);
+        fw_kernel1<<<Grid_square, Block_square>>>(temp_d_Len, temp_d_Path, num_node, num_node);
+    } else {
+        for (int B = 0; B < numberOfBlocks; B++) {
+            if (B == (numberOfBlocks - 1) && num_node % TILE_WIDTH != 0) {
+                sub_dim = num_node % TILE_WIDTH;
+            } else {
+                sub_dim = TILE_WIDTH;
+            }
+            FW_kernel1A2<<<dim3(numberOfBlocks - 1, 2), dim3(TILE_WIDTH, TILE_WIDTH)>>>
+                (B, temp_d_Len, temp_d_Path, num_node, sub_dim);
+            fw_kernel3<<<dim3(numberOfBlocks - 1, numberOfBlocks - 1), dim3(TILE_WIDTH, TILE_WIDTH)>>>
+                (B, temp_d_Len, temp_d_Path, num_node, sub_dim);
+        }
+    }
 
+    #ifdef PROFILER
+    cudaEventRecord(stop, 0);
+    cudaEventSynchronize(stop);
+    float eTime;
+    cudaEventElapsedTime(&eTime, start, stop);
+    printf("the floyd flops is: %f\n", (float)num_node * num_node * num_node * 2.0 * 1000.0 / eTime);
+    #endif
+
+    // Copy results back
+    checkCudaErrors(cudaMemcpy(d_Len, temp_d_Len, n * sizeof(float), cudaMemcpyDeviceToDevice));
+    checkCudaErrors(cudaMemcpy(d_Path, temp_d_Path, n * sizeof(int), cudaMemcpyDeviceToDevice));
+
+    // Cleanup
+    cudaFree(temp_d_Len);
+    cudaFree(temp_d_Path);
 }
-
-
 
 
 void floyd_GPU_Nvidia_path(int num_node, float *arc, int *path_node)

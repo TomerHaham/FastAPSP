@@ -76,6 +76,26 @@ int main(int argc, char **argv)
             G.solveSubGraph(current_task_id, true);
 //	    std::cout << "finish" << std::endl;
         }
+
+// get the result of last task
+    auto current_subgraph_id = G.getCurrentSubGraphId();
+    auto subgraph_dist = G.getSubGraphDistance(current_subgraph_id);
+    auto subgraph_path = G.getSubGraphPath(current_subgraph_id);
+    auto source = G.getSubGraphIndex(current_subgraph_id);
+
+    // verify the last task
+    bool check = G.check_result(
+        subgraph_dist.data(), subgraph_path.data(),
+        source.data(), source.size(), G.adj_size.size(),
+        G.adj_size.data(), G.row_offset.data(),
+        G.col_val.data(), G.weight.data(),
+        G.getGraphId().data());
+
+    int32_t verify_id = current_subgraph_id;
+    if (check == false)
+        printf("the %d subGraph is wrong !!!\n", verify_id);
+    else
+        printf("the %d subGraph is right\n", verify_id);
 //	std::cout << "finish" << std::endl;
 
         // Synchronize Kokkos tasks
@@ -97,7 +117,7 @@ int main(int argc, char **argv)
             double buffer_io_time = 0.0;
             double mapping_time = 0.0;
             long maxRSS = 0;
-std::cout << "Total runtime: " << total_runtime << " seconds." << std::endl;
+            std::cout << "Total runtime: " << total_runtime << " seconds." << std::endl;
             // Update FlatBufferWriter with runtime metrics
             writer.updateResourceConsumption(buffer_io_time, mapping_time, total_runtime, maxRSS);
 
@@ -111,7 +131,7 @@ std::cout << "Total runtime: " << total_runtime << " seconds." << std::endl;
             config.partitioner = partitioner; // Add partitioner information
             config.output_path = "./"; // Set output path, adjust as needed
             config.write_results = true;
-	    config.version = version;
+
             // Set a unique experiment ID using current timestamp
             auto now = std::chrono::system_clock::now();
             auto now_time_t = std::chrono::system_clock::to_time_t(now);
@@ -122,6 +142,7 @@ std::cout << "Total runtime: " << total_runtime << " seconds." << std::endl;
             // Write the final data to the output file
             std::string baseFilename = FlatBufferWriter::extractBaseFilename(file);
             writer.write(baseFilename, config);
+            
         }
     }
 

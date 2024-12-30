@@ -65,6 +65,9 @@ class fapGraph{
  private:
     void run(float *subgraph_dist, int *subgraph_path,
             const int32_t subgraph_id);
+    template<typename T>
+T* calculateDeviceOffset(T* base_ptr, size_t offset_elements, 
+                        size_t total_elements, const char* ptr_name);
 
  public:
     int32_t num_vertexs;

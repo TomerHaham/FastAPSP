@@ -75,6 +75,8 @@ void min_plus_path(float *mat1, float *mat2, float *res, int *path,
 #endif
 }
 
+
+
 //new version
 void min_plus_path_advanced_gpu(float *d_mat1, float *d_res, int *d_subGraph_path,
                                 float *d_res_offset, int *d_subGraph_path_offset,
@@ -91,6 +93,21 @@ void min_plus_path_advanced_gpu(float *d_mat1, float *d_res, int *d_subGraph_pat
 void min_plus_path_advanced(float *mat1, float *mat2, int *mat2_path,
     float *res, int *path, int M, int N, int K) {
 #ifdef WITH_CUDA
+printf("\nOLD VERSION Debug Info:\n");
+    printf("Dimensions: M=%d, N=%d, K=%d\n", M, N, K);
+    
+    printf("First row of mat1 (first 5 elements):\n");
+    for(int i = 0; i < min(5, K); i++) {
+        printf("%.2f ", mat1[i]);
+    }
+    printf("\n");
+
+    printf("First row of mat2 (first 5 elements):\n");
+    for(int i = 0; i < min(5, N); i++) {
+        printf("%.2f ", mat2[i]);
+    }
+    printf("\n");
+
     std::cout<<"lxd_debug: run the cuda kernel!"<<std::endl;
     minplus_NVIDIA_path(mat1, mat2, mat2_path, res, path, M, N, K);
 #elif defined(WITH_HIP)

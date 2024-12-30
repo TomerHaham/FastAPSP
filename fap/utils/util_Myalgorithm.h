@@ -94,17 +94,11 @@ __global__ void MysubMatBuildKernel(
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= sub_vertexs) return;
 
-    // Get vertex ID and validate
+    // First part: Build from CSR graph
     int ver = d_st2ed[i + start];
-    if (ver < 0 || ver >= vertexs) return;
-
-    // Process adjacency list
     int adjcount = d_adj_size[ver];
     int offset = d_rowOffsetArc[ver];
     
-    if (offset < 0 || offset + adjcount > num_edges) return;
-
-    // Process edges (same as CPU version)
     for (int j = 0; j < adjcount; j++) {
         int neighbor = d_colValueArc[offset + j];
         if (neighbor < 0 || neighbor >= vertexs) continue;
@@ -115,30 +109,148 @@ __global__ void MysubMatBuildKernel(
         int index = d_ed2st[neighbor] - start;
         
         if (index >= 0 && index < sub_vertexs) {
-            d_subMat[(int64_t)i * sub_vertexs + index] = w;
-            d_subMat_path[(int64_t)i * sub_vertexs + index] = ver;
+            int64_t mat_idx = (int64_t)i * sub_vertexs + index;
+            d_subMat[mat_idx] = w;
+            d_subMat_path[mat_idx] = ver;
         }
     }
 
-    // Copy boundary vertex data (only if this is a boundary vertex)
+    // Second part: Build from subGraph - Changed indexing to match CPU version
     if (i < bdy_vertexs) {
         for (int j = 0; j < sub_vertexs; j++) {
-            int ver = d_st2ed[j + start];
-            if (ver < 0 || ver >= vertexs) continue;
+            ver = d_st2ed[j + start];
             
-            int64_t src = (int64_t)i * vertexs + ver;
+            // Changed to match CPU version exactly
+            int64_t src = (int64_t)i * vertexs + ver;  // Original formula
             int64_t dst = (int64_t)i * sub_vertexs + j;
+            
+            if (i == 0 && j < 5) {
+                printf("Memory access: src=%lld, dst=%lld\n", src, dst);
+            }
             
             d_subMat[dst] = d_subGraph[src];
             d_subMat_path[dst] = d_subGraph_path[src];
         }
     }
 
-    // Set diagonal element
+    // Third part: Set diagonal elements
+    if (i < sub_vertexs) {
+        int64_t diag = (int64_t)i * sub_vertexs + i;
+        d_subMat[diag] = 0;
+        d_subMat_path[diag] = d_st2ed[i + start];
+    }
+}
+
+__global__ void buildFromCSR(float* d_subMat, int* d_subMat_path, 
+                            int* d_graph_id, int start, int sub_vertexs,
+                            int vertexs, int* d_st2ed, int* d_ed2st,
+                            int* d_adj_size, int* d_rowOffsetArc,
+                            int* d_colValueArc, float* d_weightArc) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= sub_vertexs) return;
+    
+    int ver = d_st2ed[i + start];
+    int adjcount = d_adj_size[ver];
+    int offset = d_rowOffsetArc[ver];
+    
+    for (int j = 0; j < adjcount; j++) {
+        int neighbor = d_colValueArc[offset + j];
+        if (neighbor < 0 || neighbor >= vertexs) continue;
+        if (d_graph_id[ver] != d_graph_id[neighbor]) continue;
+        
+        float w = d_weightArc[offset + j];
+        int index = d_ed2st[neighbor] - start;
+        
+        if (index >= 0 && index < sub_vertexs) {
+            int64_t mat_idx = (int64_t)i * sub_vertexs + index;
+            d_subMat[mat_idx] = w;
+            d_subMat_path[mat_idx] = ver;
+        }
+    }
+}
+
+__global__ void buildFromSubGraph(float* d_subMat, int* d_subMat_path,
+                                 float* d_subGraph, int* d_subGraph_path,
+                                 int start, int sub_vertexs, int bdy_vertexs,
+                                 int vertexs, int* d_st2ed) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= bdy_vertexs) return;
+    
+    for (int j = 0; j < sub_vertexs; j++) {
+        int ver = d_st2ed[j + start];
+        int64_t src = (int64_t)i * vertexs + ver;
+        int64_t dst = (int64_t)i * sub_vertexs + j;
+        
+        if (i == 0 && j < 5) {
+            printf("Memory access: src=%lld, dst=%lld\n", src, dst);
+        }
+        
+        d_subMat[dst] = d_subGraph[src];
+        d_subMat_path[dst] = d_subGraph_path[src];
+    }
+}
+
+__global__ void setDiagonal(float* d_subMat, int* d_subMat_path,
+                           int start, int sub_vertexs, int* d_st2ed) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= sub_vertexs) return;
+    
     int64_t diag = (int64_t)i * sub_vertexs + i;
     d_subMat[diag] = 0;
     d_subMat_path[diag] = d_st2ed[i + start];
 }
+
+void LaunchMysubMatBuildKernel(float *d_subMat, int *d_subMat_path,
+                              float *d_res, int *d_subGraph_path,
+                              int *d_rowOffsetArc, int *d_colValueArc,
+                              float *d_weightArc, int sub_vertexs, int bdy_vertexs,
+                              int vertexs, int *d_graph_id, int *d_st2ed, 
+                              int *d_ed2st, int *d_adj_size,
+                              const std::vector<int> &graph_id,
+                              int start, int num_edges) {
+    // Initialize with MAXVALUE
+    float* init = new float[sub_vertexs * sub_vertexs];
+    for(int i = 0; i < sub_vertexs * sub_vertexs; i++) {
+        init[i] = MAXVALUE;
+    }
+    cudaMemcpy(d_subMat, init, sub_vertexs * sub_vertexs * sizeof(float),
+               cudaMemcpyHostToDevice);
+    delete[] init;
+
+    int* init_path = new int[sub_vertexs * sub_vertexs];
+    memset(init_path, -1, sub_vertexs * sub_vertexs * sizeof(int));
+    cudaMemcpy(d_subMat_path, init_path, sub_vertexs * sub_vertexs * sizeof(int),
+               cudaMemcpyHostToDevice);
+    delete[] init_path;
+
+    const int blockSize = 256;
+
+    // Step 1: Build from CSR Graph
+    int numBlocks1 = (sub_vertexs + blockSize - 1) / blockSize;
+    printf("\nStep 1: CSR Graph Build, blocks=%d\n", numBlocks1);
+    buildFromCSR<<<numBlocks1, blockSize>>>(d_subMat, d_subMat_path,
+                                           d_graph_id, start, sub_vertexs,
+                                           vertexs, d_st2ed, d_ed2st,
+                                           d_adj_size, d_rowOffsetArc,
+                                           d_colValueArc, d_weightArc);
+    cudaDeviceSynchronize();
+
+    // Step 2: Build from subGraph
+    int numBlocks2 = (bdy_vertexs + blockSize - 1) / blockSize;
+    printf("Step 2: SubGraph Build, blocks=%d\n", numBlocks2);
+    buildFromSubGraph<<<numBlocks2, blockSize>>>(d_subMat, d_subMat_path,
+                                                d_res, d_subGraph_path,
+                                                start, sub_vertexs, bdy_vertexs,
+                                                vertexs, d_st2ed);
+    cudaDeviceSynchronize();
+
+    // Step 3: Set diagonal elements
+    int numBlocks3 = (sub_vertexs + blockSize - 1) / blockSize;
+    printf("Step 3: Diagonal Set, blocks=%d\n", numBlocks3);
+    setDiagonal<<<numBlocks3, blockSize>>>(d_subMat, d_subMat_path,
+                                          start, sub_vertexs, d_st2ed);
+    cudaDeviceSynchronize();
+}// Separate kernels to match CPU version exactly
 /*void LaunchMysubMatBuildKernel(float **d_subMat, int **d_subMat_path,
                                float *d_res, int **d_subGraph_path, int *d_rowOffsetArc, int *d_colValueArc,
                                float *d_weightArc, int sub_vertexs, int bdy_vertexs, int vertexs,
@@ -179,37 +291,58 @@ __global__ void MysubMatBuildKernel(
     //cudaDeviceSynchronize();  // Ensure the kernel has completed could maybe be removed
 }
 */
-
+/*
 void LaunchMysubMatBuildKernel(float *d_subMat, int *d_subMat_path,
-                              float *d_res, int *d_subGraph_path, int *d_rowOffsetArc, int *d_colValueArc,
-                              float *d_weightArc, int sub_vertexs, int bdy_vertexs, int vertexs,
-                              int *d_graph_id, int *d_st2ed, int *d_ed2st, int *d_adj_size,
-                              const std::vector<int> &graph_id, int start, int num_edges) {
-    // Add error checking
+                              float *d_res, int *d_subGraph_path,
+                              int *d_rowOffsetArc, int *d_colValueArc,
+                              float *d_weightArc, int sub_vertexs, int bdy_vertexs,
+                              int vertexs, int *d_graph_id, int *d_st2ed, int *d_ed2st,
+                              int *d_adj_size, const std::vector<int> &graph_id,
+                              int start, int num_edges) {
+    const float MAXVALUE = 1e8;  // Match CPU version
 
+    // First initialize d_subMat with MAXVALUE
+    float* init = new float[sub_vertexs * sub_vertexs];
+    for(int i = 0; i < sub_vertexs * sub_vertexs; i++) {
+        init[i] = MAXVALUE;
+    }
+    cudaMemcpy(d_subMat, init, sub_vertexs * sub_vertexs * sizeof(float),
+               cudaMemcpyHostToDevice);
+    delete[] init;
 
-    // Launch the kernel
+    // Initialize d_subMat_path with -1
+    int* init_path = new int[sub_vertexs * sub_vertexs];
+    memset(init_path, -1, sub_vertexs * sub_vertexs * sizeof(int));
+    cudaMemcpy(d_subMat_path, init_path, sub_vertexs * sub_vertexs * sizeof(int),
+               cudaMemcpyHostToDevice);
+    delete[] init_path;
+
+    // Rest of the function remains the same
     const int blockSize = 256;
     const int numBlocks = (sub_vertexs + blockSize - 1) / blockSize;
 
-    MysubMatBuildKernel<<<numBlocks, blockSize>>>(d_subMat, d_subMat_path, d_res, d_subGraph_path,
-                                                 d_graph_id, start, sub_vertexs, bdy_vertexs,
-                                                 vertexs, d_st2ed, d_ed2st, d_adj_size,
-                                                 d_rowOffsetArc, d_colValueArc, d_weightArc, num_edges);
+    printf("\nLaunching kernel with parameters:\n");
+    printf("sub_vertexs: %d\n", sub_vertexs);
+    printf("bdy_vertexs: %d\n", bdy_vertexs);
+    printf("vertexs: %d\n", vertexs);
+    printf("num_edges: %d\n", num_edges);
+    printf("start: %d\n", start);
 
-    // Check for kernel launch errors
+    MysubMatBuildKernel<<<numBlocks, blockSize>>>(
+        d_subMat, d_subMat_path, d_res, d_subGraph_path,
+        d_graph_id, start, sub_vertexs, bdy_vertexs,
+        vertexs, d_st2ed, d_ed2st, d_adj_size,
+        d_rowOffsetArc, d_colValueArc, d_weightArc, num_edges);
+
+    // Error checking
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
         printf("Kernel launch error: %s\n", cudaGetErrorString(err));
         return;
     }
 
-    // Wait for kernel to complete
-    //checkCudaErrors(cudaDeviceSynchronize());
-    
-    // Only free the temporary arrays that won't be used later
-}
-
+    cudaDeviceSynchronize();
+}*/
 __global__ void MysubMatDecode_path_kernel(
     const float* d_subMat, const int* d_subMat_path,
     float* d_res, int* d_subGraph_path,
@@ -249,7 +382,7 @@ void LaunchMysubMatDecodePathKernel(
         d_ed2st, start, row, col, vertexs);
 
     // Synchronize to ensure kernel completion
-    //checkCudaErrors(cudaDeviceSynchronize());
+    checkCudaErrors(cudaDeviceSynchronize());
 }
 
 
@@ -266,6 +399,66 @@ void MysubMatDecode_path(float *subMat, int *subMat_path,
     }
 }
 
+
+__global__ void MyMat1BuildKernel(float *d_mat1, const float* inner_to_inner_dist, 
+                                 int inner_num, int bdy_num, int sub_vertexs) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= inner_num) return;
+    
+    int index = i + bdy_num;
+    
+    // Copy from inner_to_inner_dist to create the thin matrix
+    for (int j = 0; j < bdy_num; j++) {
+        float val = inner_to_inner_dist[index * sub_vertexs + j];
+        d_mat1[i * bdy_num + j] = val;
+    }
+}
+
+void LaunchMyMat1BuildKernel(float* d_mat1, const float* d_inner_to_inner_dist, 
+                            int inner_num, int bdy_num, int sub_vertexs) {
+    printf("\nMat1Build Debug Info:\n");
+    printf("Dimensions: inner_num=%d, bdy_num=%d, sub_vertexs=%d\n", 
+           inner_num, bdy_num, sub_vertexs);
+
+    // Print source data
+    float* verify = new float[sub_vertexs * 2];
+    cudaMemcpy(verify, d_inner_to_inner_dist, 
+               sub_vertexs * 2 * sizeof(float), cudaMemcpyDeviceToHost);
+    
+    printf("Source matrix (first 5 cols of first 2 rows):\n");
+    for (int i = 0; i < 2; i++) {
+        printf("Row %d: ", i);
+        for (int j = 0; j < 5; j++) {
+            printf("%.2f ", verify[i * sub_vertexs + j]);
+        }
+        printf("\n");
+    }
+
+    const int blockSize = 256;
+    const int numBlocks = (inner_num + blockSize - 1) / blockSize;
+    
+    MyMat1BuildKernel<<<numBlocks, blockSize>>>(
+        d_mat1, d_inner_to_inner_dist, inner_num, bdy_num, sub_vertexs);
+
+    cudaDeviceSynchronize();
+    
+    // Verify output
+    float* result = new float[bdy_num * 2];
+    cudaMemcpy(result, d_mat1, bdy_num * 2 * sizeof(float), 
+               cudaMemcpyDeviceToHost);
+    printf("Output matrix (first 5 cols of first 2 rows):\n");
+    for (int i = 0; i < 2; i++) {
+        printf("Row %d: ", i);
+        for (int j = 0; j < 5; j++) {
+            printf("%.2f ", result[i * bdy_num + j]);
+        }
+        printf("\n");
+    }
+
+    delete[] verify;
+    delete[] result;
+}
+/*
 __global__ void MyMat1BuildKernel(float *d_mat1, const float* d_subMat, int inner_num, int bdy_num, int sub_vertexs) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < inner_num) {
@@ -290,9 +483,9 @@ void LaunchMyMat1BuildKernel(float* d_mat1, const float* d_subMat, int inner_num
         printf("Kernel launch error: %s\n", cudaGetErrorString(err));
         return;
     }
-    checkCudaErrors(cudaDeviceSynchronize());
+    //checkCudaErrors(cudaDeviceSynchronize());
 }
-
+*/
 
 void MyMat1Build(float *mat1, float *subMat,
     int inner_num, int bdy_num, int sub_vertexs) {
