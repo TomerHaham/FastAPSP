@@ -245,7 +245,7 @@ void fapGraph::run(float *subgraph_dist,
             d_graph_id, d_st2ed, d_ed2st, d_adj_size, graph_id, start, this->num_edges);
 
         checkCudaErrors(cudaFree(d_graph_id));
-        //checkCudaErrors(cudaFree(d_ed2st));
+        checkCudaErrors(cudaFree(d_ed2st));
         checkCudaErrors(cudaFree(d_adj_size));
         checkCudaErrors(cudaFree(d_rowOffsetArc));
         checkCudaErrors(cudaFree(d_weightArc));
@@ -323,7 +323,7 @@ if (part_num == 1) {
         }
     }
 }
-        checkCudaErrors(cudaMemcpy(inner_to_inner_dist.data(), d_subMat,
+        /*checkCudaErrors(cudaMemcpy(inner_to_inner_dist.data(), d_subMat,
                      sub_vertexs * sub_vertexs * sizeof(float),
                      cudaMemcpyDeviceToHost));
         checkCudaErrors(cudaMemcpy(inner_to_inner_path.data(), d_subMat_path,
@@ -342,20 +342,34 @@ if (part_num == 1) {
 
     checkCudaErrors(cudaFree(d_res));
     checkCudaErrors(cudaFree(d_subGraph_path));
-
+*/
 
         // 3.3 Final decode
-        fap::MysubMatDecode_path(
-            inner_to_inner_dist.data(), inner_to_inner_path.data(),
-            subgraph_dist, subgraph_path,
-            C_BlockVer_offset[sub_graph_id], sub_vertexs,
-            sub_vertexs, this->num_vertexs, st2ed.data());
+LaunchMysubMatDecodePathKernel(
+    d_subMat, d_subMat_path,
+    d_res, d_subGraph_path,
+    d_st2ed, C_BlockVer_offset[sub_graph_id],
+    sub_vertexs, sub_vertexs, this->num_vertexs);
+
+            checkCudaErrors(cudaMemcpy(subgraph_dist, d_res, 
+                              subgraph_dist_size * sizeof(float), 
+                              cudaMemcpyDeviceToHost));
+    printf("Successfully copied d_res data\n");
+    
+    checkCudaErrors(cudaMemcpy(subgraph_path, d_subGraph_path,
+                              subgraph_dist_size * sizeof(int),
+                              cudaMemcpyDeviceToHost));
+
+    cudaDeviceSynchronize();
+
+    checkCudaErrors(cudaFree(d_res));
+    checkCudaErrors(cudaFree(d_subGraph_path));
 
         // Cleanup GPU resources
         if (d_mat1) checkCudaErrors(cudaFree(d_mat1));
         if (d_subMat) checkCudaErrors(cudaFree(d_subMat));
         if (d_subMat_path) checkCudaErrors(cudaFree(d_subMat_path));
-        if (d_ed2st) checkCudaErrors(cudaFree(d_ed2st));
+        if (d_st2ed) checkCudaErrors(cudaFree(d_st2ed));
 
 }          /*
 float *d_res = nullptr;
