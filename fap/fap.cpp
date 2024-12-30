@@ -269,25 +269,6 @@ void fapGraph::run(float *subgraph_dist,
         fap::floyd_path_gpu(sub_vertexs, d_subMat, d_subMat_path);
         
         // Copy floyd results back to host
-        checkCudaErrors(cudaMemcpy(inner_to_inner_dist.data(), d_subMat,
-                     sub_vertexs * sub_vertexs * sizeof(float),
-                     cudaMemcpyDeviceToHost));
-        checkCudaErrors(cudaMemcpy(inner_to_inner_path.data(), d_subMat_path,
-                     sub_vertexs * sub_vertexs * sizeof(int),
-                     cudaMemcpyDeviceToHost));
-            checkCudaErrors(cudaMemcpy(subgraph_dist, d_res, 
-                              subgraph_dist_size * sizeof(float), 
-                              cudaMemcpyDeviceToHost));
-    printf("Successfully copied d_res data\n");
-    
-    checkCudaErrors(cudaMemcpy(subgraph_path, d_subGraph_path,
-                              subgraph_dist_size * sizeof(int),
-                              cudaMemcpyDeviceToHost));
-
-    cudaDeviceSynchronize();
-
-    checkCudaErrors(cudaFree(d_res));
-    checkCudaErrors(cudaFree(d_subGraph_path));
 
 
 
@@ -309,16 +290,59 @@ void fapGraph::run(float *subgraph_dist,
         part_num = static_cast<int>(ceil(static_cast<double>(inner_num) / MEM_NUM));
         #endif
 
-        if (part_num == 1) {
-            fap::min_plus_path_advanced(
-                h_verify_mat1.data(),
-                subgraph_dist, subgraph_path,
-                subgraph_dist + offset,
-                subgraph_path + offset,
-                inner_num, this->num_vertexs, bdy_num);
+if (part_num == 1) {
+    fap::min_plus_path_advanced_gpu(
+        d_mat1,           // GPU pointer for inner_to_bdy_dist
+        d_res,            // GPU pointer for subgraph_dist
+        d_subGraph_path,  // GPU pointer for subgraph_path
+        d_res + offset,   // GPU pointer for subgraph_dist + offset
+        d_subGraph_path + offset, // GPU pointer for subgraph_path + offset
+        inner_num, this->num_vertexs, bdy_num);
+} else {
+    int block_size = inner_num / part_num;
+    int last_size = inner_num - block_size * (part_num - 1);
+
+    for (int i = 0; i < part_num; i++) {
+        int64_t offset_value = offset + (int64_t)i * block_size * this->num_vertexs;
+        if (i == part_num - 1) {
+            fap::min_plus_path_advanced_gpu(
+                d_mat1 + i * block_size * bdy_num,
+                d_res,
+                d_subGraph_path,
+                d_res + offset_value,
+                d_subGraph_path + offset_value,
+                last_size, this->num_vertexs, bdy_num);
         } else {
-            // [Previous partitioned computation remains the same]
+            fap::min_plus_path_advanced_gpu(
+                d_mat1 + i * block_size * bdy_num,
+                d_res,
+                d_subGraph_path,
+                d_res + offset_value,
+                d_subGraph_path + offset_value,
+                block_size, this->num_vertexs, bdy_num);
         }
+    }
+}
+        checkCudaErrors(cudaMemcpy(inner_to_inner_dist.data(), d_subMat,
+                     sub_vertexs * sub_vertexs * sizeof(float),
+                     cudaMemcpyDeviceToHost));
+        checkCudaErrors(cudaMemcpy(inner_to_inner_path.data(), d_subMat_path,
+                     sub_vertexs * sub_vertexs * sizeof(int),
+                     cudaMemcpyDeviceToHost));
+            checkCudaErrors(cudaMemcpy(subgraph_dist, d_res, 
+                              subgraph_dist_size * sizeof(float), 
+                              cudaMemcpyDeviceToHost));
+    printf("Successfully copied d_res data\n");
+    
+    checkCudaErrors(cudaMemcpy(subgraph_path, d_subGraph_path,
+                              subgraph_dist_size * sizeof(int),
+                              cudaMemcpyDeviceToHost));
+
+    cudaDeviceSynchronize();
+
+    checkCudaErrors(cudaFree(d_res));
+    checkCudaErrors(cudaFree(d_subGraph_path));
+
 
         // 3.3 Final decode
         fap::MysubMatDecode_path(
