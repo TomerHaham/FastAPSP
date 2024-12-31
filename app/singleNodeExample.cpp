@@ -18,28 +18,40 @@
 #include <iostream>
 #include <fstream>
 #include "fap/fap.h"
+#include <chrono>
+#include <Kokkos_Core.hpp>  // Include Kokkos after MPI
+
+
 
 int main(int argc, char **argv)
 {
-    std::string file;
-    std::string partitioner;
-    int K;
-    bool directed, weighted, version;
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-f") == 0) {
-            file = argv[i + 1];
-        } else if (strcmp(argv[i], "-k") == 0) {
-            K = std::stoi(argv[i + 1]);
-        } else if (strcmp(argv[i], "-direct") == 0) {
-            directed = (strcmp(argv[i + 1], "true") == 0);
-        } else if (strcmp(argv[i], "-weight") == 0) {
-            weighted = (strcmp(argv[i + 1], "true") == 0);
-        } else if (strcmp(argv[i], "-partitioner") == 0) {
-            partitioner = argv[i + 1];
-        }else if (strcmp(argv[i], "-version") == 0) {
-            version = (strcmp(argv[i + 1], "true") == 0);
- 	}
-   }
+        Kokkos::initialize();    // Initialize Kokkos
+
+    {
+        // Start timing for the complete runtime
+        auto start_time = std::chrono::high_resolution_clock::now();
+
+        std::string file;
+        int K;
+        std::string partitioner;
+        bool directed = false, weighted = false, version = false;
+
+        // Parse command line arguments
+        for (int i = 1; i < argc; i++) {
+            if (strcmp(argv[i], "-f") == 0) {
+                file = argv[i + 1];
+            } else if (strcmp(argv[i], "-k") == 0) {
+                K = std::stoi(argv[i + 1]);
+            } else if (strcmp(argv[i], "-direct") == 0) {
+                directed = (strcmp(argv[i + 1], "true") == 0);
+            } else if (strcmp(argv[i], "-weight") == 0) {
+                weighted = (strcmp(argv[i + 1], "true") == 0);
+            } else if (strcmp(argv[i], "-partitioner") == 0) {
+                partitioner = argv[i + 1];
+            }else if (strcmp(argv[i], "-version") == 0) {
+                version = (strcmp(argv[i + 1], "true") == 0);
+            }
+        }
 
     // run the kernel
     fap::fapGraph G(file, directed, weighted, K, partitioner, version);
@@ -51,6 +63,9 @@ int main(int argc, char **argv)
     } else {
         G.solve();
     }
+            auto end_time = std::chrono::high_resolution_clock::now();
+        double total_runtime = std::chrono::duration<double>(end_time - start_time).count();
+            std::cout << "Total runtime: " << total_runtime << " seconds." << std::endl;
 
     // get the result
     auto current_subgraph_id = G.getCurrentSubGraphId();
@@ -70,5 +85,10 @@ int main(int argc, char **argv)
     if (check == false)
         printf("the %d subGraph is wrong !!!\n", verify_id);
     else
-        printf("the %d subGraph is right\n", verify_id);
+        printf("the %d subGraph is right\n", verify_id);       
+}
+    Kokkos::finalize();  // Finalize Kokkos
+        return 0;
+
+
 }

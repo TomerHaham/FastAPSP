@@ -201,7 +201,6 @@ void fapGraph::run(float *subgraph_dist,
     int *d_graph_id = nullptr, *d_st2ed = nullptr, *d_ed2st = nullptr;
     int *d_adj_size = nullptr;
     int *d_subGraph_path = nullptr;
-    vector<float> h_verify_mat1(inner_num * bdy_num);
         try {
 
         checkCudaErrors(cudaMalloc((void **)&d_res, subgraph_dist_size * sizeof(float)));
@@ -276,10 +275,6 @@ void fapGraph::run(float *subgraph_dist,
         checkCudaErrors(cudaMalloc((void**)&d_mat1, inner_num * bdy_num * sizeof(float)));
         LaunchMyMat1BuildKernel(d_mat1, d_subMat, inner_num, bdy_num, sub_vertexs);
         
-        // Copy mat1 data for CPU min-plus
-        checkCudaErrors(cudaMemcpy(h_verify_mat1.data(), d_mat1,
-                      inner_num * bdy_num * sizeof(float),
-                      cudaMemcpyDeviceToHost));
 
         // 3.2 Min-plus computation
         int64_t offset = (int64_t)bdy_num * this->num_vertexs;
@@ -323,26 +318,6 @@ if (part_num == 1) {
         }
     }
 }
-        /*checkCudaErrors(cudaMemcpy(inner_to_inner_dist.data(), d_subMat,
-                     sub_vertexs * sub_vertexs * sizeof(float),
-                     cudaMemcpyDeviceToHost));
-        checkCudaErrors(cudaMemcpy(inner_to_inner_path.data(), d_subMat_path,
-                     sub_vertexs * sub_vertexs * sizeof(int),
-                     cudaMemcpyDeviceToHost));
-            checkCudaErrors(cudaMemcpy(subgraph_dist, d_res, 
-                              subgraph_dist_size * sizeof(float), 
-                              cudaMemcpyDeviceToHost));
-    printf("Successfully copied d_res data\n");
-    
-    checkCudaErrors(cudaMemcpy(subgraph_path, d_subGraph_path,
-                              subgraph_dist_size * sizeof(int),
-                              cudaMemcpyDeviceToHost));
-
-    cudaDeviceSynchronize();
-
-    checkCudaErrors(cudaFree(d_res));
-    checkCudaErrors(cudaFree(d_subGraph_path));
-*/
 
         // 3.3 Final decode
 LaunchMysubMatDecodePathKernel(
@@ -354,7 +329,6 @@ LaunchMysubMatDecodePathKernel(
             checkCudaErrors(cudaMemcpy(subgraph_dist, d_res, 
                               subgraph_dist_size * sizeof(float), 
                               cudaMemcpyDeviceToHost));
-    printf("Successfully copied d_res data\n");
     
     checkCudaErrors(cudaMemcpy(subgraph_path, d_subGraph_path,
                               subgraph_dist_size * sizeof(int),
@@ -371,279 +345,7 @@ LaunchMysubMatDecodePathKernel(
         if (d_subMat_path) checkCudaErrors(cudaFree(d_subMat_path));
         if (d_st2ed) checkCudaErrors(cudaFree(d_st2ed));
 
-}          /*
-float *d_res = nullptr;
-    int *d_rowOffsetArc = nullptr, *d_colValueArc = nullptr;
-    float *d_weightArc = nullptr;
-    float *d_subMat = nullptr;
-    int *d_subMat_path = nullptr;
-    int *d_graph_id = nullptr, *d_st2ed = nullptr, *d_ed2st = nullptr, *d_adj_size = nullptr;
-    int *d_subGraph_path = nullptr;
-
-    try {
-
-        checkCudaErrors(cudaMalloc((void **)&d_res, subgraph_dist_size * sizeof(float)));
-        checkCudaErrors(cudaMalloc((void **)&d_rowOffsetArc, this->num_vertexs * sizeof(int)));
-        checkCudaErrors(cudaMalloc((void **)&d_colValueArc, this->num_edges * sizeof(int)));
-        checkCudaErrors(cudaMalloc((void **)&d_weightArc, this->num_edges * sizeof(float)));
-        checkCudaErrors(cudaMemcpy(d_rowOffsetArc, row_offset.data(), this->num_vertexs * sizeof(int), cudaMemcpyHostToDevice));
-        checkCudaErrors(cudaMemcpy(d_colValueArc, col_val.data(), this->num_edges * sizeof(int), cudaMemcpyHostToDevice));
-        checkCudaErrors(cudaMemcpy(d_weightArc, weight.data(), this->num_edges * sizeof(float), cudaMemcpyHostToDevice));
-
-
-        // Handle boundary data on GPU
-        handle_boundry_path_data_on_gpu(subgraph_dist, subgraph_path,
-                            this->num_vertexs, this->num_edges, bdy_num,
-                            adj_size.data(), row_offset.data(), col_val.data(),
-                            weight.data(), st2ed.data(), C_BlockVer_offset[sub_graph_id],
-                            d_res, d_rowOffsetArc, d_colValueArc, d_weightArc);
-        checkCudaErrors(cudaDeviceSynchronize());
-
-        // Allocate and copy data for graph arrays
-        checkCudaErrors(cudaMalloc((void**)&d_graph_id, graph_id.size() * sizeof(int)));
-        checkCudaErrors(cudaMalloc((void**)&d_st2ed, st2ed.size() * sizeof(int)));
-        checkCudaErrors(cudaMalloc((void**)&d_ed2st, ed2st.size() * sizeof(int)));
-        checkCudaErrors(cudaMalloc((void**)&d_adj_size, adj_size.size() * sizeof(int)));
-        checkCudaErrors(cudaMalloc((void**)&d_subMat, sub_vertexs * sub_vertexs * sizeof(float)));
-        checkCudaErrors(cudaMalloc((void**)&d_subMat_path, sub_vertexs * sub_vertexs * sizeof(int)));
-        checkCudaErrors(cudaMalloc((void**)&d_subGraph_path, subgraph_dist_size * sizeof(int)));
-        checkCudaErrors(cudaMemcpy(d_subGraph_path, subgraph_path, sub_vertexs * this->num_vertexs * sizeof(int), cudaMemcpyHostToDevice));
-        checkCudaErrors(cudaMemcpy(d_graph_id, graph_id.data(), graph_id.size() * sizeof(int), cudaMemcpyHostToDevice));
-        checkCudaErrors(cudaMemcpy(d_st2ed, st2ed.data(), st2ed.size() * sizeof(int), cudaMemcpyHostToDevice));
-        checkCudaErrors(cudaMemcpy(d_ed2st, ed2st.data(), ed2st.size() * sizeof(int), cudaMemcpyHostToDevice));
-        checkCudaErrors(cudaMemcpy(d_adj_size, adj_size.data(), adj_size.size() * sizeof(int), cudaMemcpyHostToDevice));
-
-        int start = C_BlockVer_offset[sub_graph_id];
-
-        // Launch kernel
-        LaunchMysubMatBuildKernel(
-            d_subMat, d_subMat_path, d_res,
-            d_subGraph_path, d_rowOffsetArc, d_colValueArc,
-            d_weightArc, sub_vertexs, bdy_num, this->num_vertexs,
-            d_graph_id, d_st2ed, d_ed2st, d_adj_size, graph_id, start, this->num_edges);
-
-        checkCudaErrors(cudaFree(d_graph_id));
-        //checkCudaErrors(cudaFree(d_ed2st));
-        checkCudaErrors(cudaFree(d_adj_size));
-        checkCudaErrors(cudaFree(d_rowOffsetArc));
-        checkCudaErrors(cudaFree(d_weightArc));
-        checkCudaErrors(cudaFree(d_colValueArc));
-
-        // Note: d_subMat, d_subMat_path, d_res, and d_subGraph_path are kept alive
-        // for use in subsequent operations
-
-    } catch (const std::runtime_error& e) {
-        printf("Error in fapGraph::run: %s\n", e.what());
-        // Clean up any allocated memory in case of error
-        if (d_subMat) checkCudaErrors(cudaFree(d_subMat));
-        if (d_subMat_path) checkCudaErrors(cudaFree(d_subMat_path));
-        if (d_subGraph_path) checkCudaErrors(cudaFree(d_subGraph_path));
-        if (d_res) checkCudaErrors(cudaFree(d_res));
-        throw;
-    }
-
-    // 2.2 run floyd algorithm
-    fap::floyd_path_gpu(sub_vertexs, d_subMat, d_subMat_path);
-    // Use the wrapper function to decode the submatrix on the GPU
-// After floyd_GPU_Nvidia_path_gpu call:
-float* verify_floyd = new float[sub_vertexs];
-int row_to_check = bdy_num;  // First inner row
-cudaMemcpy(verify_floyd, d_subMat + row_to_check * sub_vertexs, 
-           sub_vertexs * sizeof(float), cudaMemcpyDeviceToHost);
-printf("First inner row after floyd (first 10 elements):\n");
-for(int i = 0; i < 10 && i < sub_vertexs; i++) {
-    printf("%.2f ", verify_floyd[i]);
-}
-printf("\n");
-delete[] verify_floyd;float* h_verify = new float[sub_vertexs * sub_vertexs];
-cudaMemcpy(h_verify, d_subMat, sub_vertexs * sub_vertexs * sizeof(float), cudaMemcpyDeviceToHost);
-printf("After floyd: First few values of d_subMat:\n");
-for(int i = 0; i < 5; i++) {
-    printf("%f ", h_verify[i]);
-}
-printf("\n");
-// 3.1 move data from subMat to a thin matrix
-float* d_mat1 = nullptr;
-checkCudaErrors(cudaMalloc((void**)&d_mat1, inner_num * bdy_num * sizeof(float)));
-float* debug_buf = new float[sub_vertexs * sub_vertexs];
-cudaMemcpy(debug_buf, d_subMat, sub_vertexs * sub_vertexs * sizeof(float), 
-           cudaMemcpyDeviceToHost);
-printf("d_subMat layout check at (%d,%d): %.2f\n", 
-       bdy_num, 0, debug_buf[bdy_num * sub_vertexs]);
-delete[] debug_buf;
-// Call the kernel launch function
-LaunchMyMat1BuildKernel(d_mat1, d_subMat, inner_num, bdy_num, sub_vertexs);
-float* h_verify_mat1 = new float[inner_num * bdy_num];
-cudaMemcpy(h_verify_mat1, d_mat1, inner_num * bdy_num * sizeof(float), cudaMemcpyDeviceToHost);
-printf("After Mat1Build: First few values of d_mat1:\n");
-for(int i = 0; i < 5; i++) {
-    printf("%f ", h_verify_mat1[i]);
-}
-printf("\n");
-
-
-  int64_t offset = (int64_t)bdy_num * this->num_vertexs;
-// Add this right before the min_plus_path_advanced call in the old version
-printf("\nDebug - Original CPU version values:\n");
-printf("inner_to_bdy_dist (first 10 values):\n");
-for (int i = 0; i < 10; i++) {
-    printf("%.2f ", inner_to_bdy_dist[i]);
-}
-printf("\n\nFirst 10 values at each stage:\n");
-for (int i = 0; i < 10; i++) {
-    printf("[%d] inner_to_inner_dist: %.2f\n", i, inner_to_inner_dist[i * sub_vertexs]);
-}
-printf("\nFirst few rows of subgraph_dist:\n");
-for (int i = 0; i < 5; i++) {
-    printf("Row %d: ", i);
-    for (int j = 0; j < 5; j++) {
-        printf("%.2f ", inner_to_inner_dist[i * sub_vertexs + j]);
-    }
-    printf("\n");
-}
-    // 3.2 run min-plus
-    // GPU global mem / sizeof(float)
-// stage 3.2 run min-plus
-const double GPU_MAX_NUM = 4e9;
-const double MEM_NUM = GPU_MAX_NUM / this->num_vertexs - bdy_num;
-int part_num = 1;
-#ifdef WITH_GPU
-part_num = static_cast<int>(
-    ceil(static_cast<double>(inner_num) / MEM_NUM));
-#endif
-if (part_num == 1) {
-    fap::min_plus_path_advanced_gpu(
-        d_mat1,           // GPU pointer for inner_to_bdy_dist
-        d_res,            // GPU pointer for subgraph_dist
-        d_subGraph_path,  // GPU pointer for subgraph_path
-        d_res + offset,   // GPU pointer for subgraph_dist + offset
-        d_subGraph_path + offset, // GPU pointer for subgraph_path + offset
-        inner_num, this->num_vertexs, bdy_num);
-} else {
-    int block_size = inner_num / part_num;
-    int last_size = inner_num - block_size * (part_num - 1);
-
-    for (int i = 0; i < part_num; i++) {
-        int64_t offset_value = offset + (int64_t)i * block_size * this->num_vertexs;
-        if (i == part_num - 1) {
-            fap::min_plus_path_advanced_gpu(
-                d_mat1 + i * block_size * bdy_num,
-                d_res,
-                d_subGraph_path,
-                d_res + offset_value,
-                d_subGraph_path + offset_value,
-                last_size, this->num_vertexs, bdy_num);
-        } else {
-            fap::min_plus_path_advanced_gpu(
-                d_mat1 + i * block_size * bdy_num,
-                d_res,
-                d_subGraph_path,
-                d_res + offset_value,
-                d_subGraph_path + offset_value,
-                block_size, this->num_vertexs, bdy_num);
-        }
-    }
-}
-
-// After min-plus but before decode
-float* h_verify_res = new float[5];
-cudaMemcpy(h_verify_res, d_res, 5 * sizeof(float), cudaMemcpyDeviceToHost);
-printf("After min-plus: First few values of d_res:\n");
-for(int i = 0; i < 5; i++) {
-    printf("%f ", h_verify_res[i]);
-}
-printf("\n");
-
-delete[] h_verify;
-delete[] h_verify_mat1;
-delete[] h_verify_res;
-
-LaunchMysubMatDecodePathKernel(
-    d_subMat, d_subMat_path,
-    d_res, d_subGraph_path,
-    d_ed2st, C_BlockVer_offset[sub_graph_id],
-    sub_vertexs, sub_vertexs, this->num_vertexs);
-
-checkCudaErrors(cudaFree(d_ed2st));
-checkCudaErrors(cudaFree(d_subMat_path));
-// Now you can safely free d_subMat
-checkCudaErrors(cudaFree(d_subMat));
-
-
-
-// Synchronize and check for errors
-// First synchronize after kernel execution
-cudaError_t err = cudaDeviceSynchronize();
-if (err != cudaSuccess) {
-    printf("Error after min-plus execution: %s\n", cudaGetErrorString(err));
-    throw std::runtime_error("Kernel execution failed");
-}
-
-// Validate all pointers before any memory operations
-cudaPointerAttributes attr;
-err = cudaPointerGetAttributes(&attr, d_res);
-if (err != cudaSuccess) {
-    printf("Invalid d_res pointer before memcpy: %s\n", cudaGetErrorString(err));
-    throw std::runtime_error("Invalid d_res pointer before memcpy");
-}
-
-err = cudaPointerGetAttributes(&attr, d_subGraph_path);
-if (err != cudaSuccess) {
-    printf("Invalid d_subGraph_path pointer before memcpy: %s\n", cudaGetErrorString(err));
-    throw std::runtime_error("Invalid d_subGraph_path pointer before memcpy");
-}
-
-// Print verification info
-printf("\nPreparing for memory copy:\n");
-printf("subgraph_dist_size: %ld, sub_vertexs: %d, num_vertexs: %d\n",
-       subgraph_dist_size, sub_vertexs, this->num_vertexs);
-printf("Memory copy sizes - d_res: %zu bytes, d_subGraph_path: %zu bytes\n",
-       subgraph_dist_size * sizeof(float), subgraph_dist_size * sizeof(int));
-
-// Perform memory copies
-try {
-    checkCudaErrors(cudaMemcpy(subgraph_dist, d_res, 
-                              subgraph_dist_size * sizeof(float), 
-                              cudaMemcpyDeviceToHost));
-    printf("Successfully copied d_res data\n");
-    
-    checkCudaErrors(cudaMemcpy(subgraph_path, d_subGraph_path,
-                              subgraph_dist_size * sizeof(int),
-                              cudaMemcpyDeviceToHost));
-    printf("Successfully copied d_subGraph_path data\n");
-} catch (const std::runtime_error& e) {
-    printf("Error during memory copy: %s\n", e.what());
-    throw;
-}
-
-// Synchronize again before cleanup
-cudaDeviceSynchronize();
-
-// Free GPU memory
-printf("\nFreeing GPU memory...\n");
-try {
-    if (d_mat1) {
-        checkCudaErrors(cudaFree(d_mat1));
-        d_mat1 = nullptr;
-        printf("Freed d_mat1\n");
-    }
-    
-    if (d_res) {
-        checkCudaErrors(cudaFree(d_res));
-        d_res = nullptr;
-        printf("Freed d_res\n");
-    }
-    
-    if (d_subGraph_path) {
-        checkCudaErrors(cudaFree(d_subGraph_path));
-        d_subGraph_path = nullptr;
-        printf("Freed d_subGraph_path\n");
-    }
-} catch (const std::runtime_error& e) {
-    printf("Error during memory cleanup: %s\n", e.what());
-    throw;
-}*/
-else{
+}else{
 
   // stage 1. run sssp algorithm in boundry points.
   fap::handle_boundry_path(
@@ -662,15 +364,6 @@ else{
       this->num_vertexs, st2ed.data(), ed2st.data(),
       adj_size.data(), row_offset.data(), col_val.data(), weight.data());
 
-// After MysubMatBuild_path
-printf("CPU version - after MysubMatBuild_path:\n");
-for(int i = 0; i < 5; i++) {
-    printf("Row %d: ", i);
-    for(int j = 0; j < 5; j++) {
-        printf("%.2f ", inner_to_inner_dist[i * sub_vertexs + j]);
-    }
-    printf("\n");
-}
   // 2.2 run floyd algorithm
   fap::floyd_path(sub_vertexs,
     inner_to_inner_dist.data(), inner_to_inner_path.data());
@@ -690,18 +383,6 @@ for(int i = 0; i < 5; i++) {
   part_num = static_cast<int>(
       ceil(static_cast<double>(inner_num) / MEM_NUM));
 #endif
-// Before min_plus_path_advanced call
-printf("Debug - Before minplus:\n");
-printf("First few values of inner_to_bdy_dist:\n");
-for(int i = 0; i < 5; i++) {
-    printf("%.2f ", inner_to_bdy_dist[i]);
-}
-printf("\n");
-printf("First few values of subgraph_dist:\n");
-for(int i = 0; i < 5; i++) {
-    printf("%.2f ", subgraph_dist[i]);
-}
-printf("\n");
   // GPU memory is expansive and maybe too big.
   if (part_num == 1) {
       fap::min_plus_path_advanced(

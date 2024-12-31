@@ -76,7 +76,7 @@ int main(int argc, char **argv)
             G.solveSubGraph(current_task_id, true);
 //	    std::cout << "finish" << std::endl;
         }
-
+/*
 // get the result of last task
     auto current_subgraph_id = G.getCurrentSubGraphId();
     auto subgraph_dist = G.getSubGraphDistance(current_subgraph_id);
@@ -97,7 +97,7 @@ int main(int argc, char **argv)
     else
         printf("the %d subGraph is right\n", verify_id);
 //	std::cout << "finish" << std::endl;
-
+*/
         // Synchronize Kokkos tasks
         Kokkos::fence(); // Ensure all Kokkos tasks are completed
 

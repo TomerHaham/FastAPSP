@@ -264,26 +264,7 @@ void minplus_NVIDIA_path(float *mat1, float *mat2, int *mat2_path,
 void minplus_NVIDIA_path_gpu(float *d_mat1, float *d_res, int *d_res_path,
                            float *d_res_offset, int *d_res_path_offset,
                            int m, int n, int k) {
-    printf("\nmin_plus Debug Info:\n");
-    printf("Matrix dimensions: m=%d, n=%d, k=%d\n", m, n, k);
-    
     // Print input matrices
-    float* h_mat1 = new float[m * k];
-    float* h_res = new float[k * n];
-    cudaMemcpy(h_mat1, d_mat1, m * k * sizeof(float), cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_res, d_res, k * n * sizeof(float), cudaMemcpyDeviceToHost);
-    
-    printf("First row of mat1 (first 5 elements):\n");
-    for(int i = 0; i < min(5, k); i++) {
-        printf("%.2f ", h_mat1[i]);
-    }
-    printf("\n");
-    
-    printf("First row of res (first 5 elements):\n");
-    for(int i = 0; i < min(5, n); i++) {
-        printf("%.2f ", h_res[i]);
-    }
-    printf("\n");
 
     float *d_a;
     float *d_b;
@@ -301,8 +282,6 @@ void minplus_NVIDIA_path_gpu(float *d_mat1, float *d_res, int *d_res_path,
     long long n_padding = ((n % BLOCK_SIZE_N == 0) ? n : (n / BLOCK_SIZE_N + 1) * BLOCK_SIZE_N);
     long long k_padding = ((k % BLOCK_SIZE_K == 0) ? k : (k / BLOCK_SIZE_K + 1) * BLOCK_SIZE_K);
 
-    printf("Padded dimensions: m_padding=%lld, n_padding=%lld, k_padding=%lld\n", 
-           m_padding, n_padding, k_padding);
 
     // Allocate with proper error checking
     try {
@@ -335,20 +314,9 @@ void minplus_NVIDIA_path_gpu(float *d_mat1, float *d_res, int *d_res_path,
                                    cudaMemcpyDeviceToDevice));
 
         // Verify data after copy
-        float* verify_a = new float[k_padding];
-        cudaMemcpy(verify_a, d_a, k_padding * sizeof(float), cudaMemcpyDeviceToHost);
-        printf("First row of d_a after copy (first 5):\n");
-        for(int i = 0; i < min(5, int(k_padding)); i++) {
-            printf("%.2f ", verify_a[i]);
-        }
-        printf("\n");
-        delete[] verify_a;
-
+// Add after cudaMemcpy2D operations:
         dim3 dimBlock(BLOCK_SIZE_N / THREAD_SIZE_X, BLOCK_SIZE_M / THREAD_SIZE_Y);
         dim3 dimGrid(n_padding / BLOCK_SIZE_N, m_padding / BLOCK_SIZE_M);
-        printf("Grid dims: (%d, %d), Block dims: (%d, %d)\n", 
-               dimGrid.x, dimGrid.y, dimBlock.x, dimBlock.y);
-
         MatrixMulCUDA6_path<BLOCK_SIZE_M, BLOCK_SIZE_K, BLOCK_SIZE_N, 
                            THREAD_SIZE_Y, THREAD_SIZE_X, ENABLE_DOUBLE_BUFFER>
             <<<dimGrid, dimBlock>>>(d_a, d_b, d_b_path, d_c, d_c_path, k_padding, n_padding);
@@ -366,14 +334,6 @@ void minplus_NVIDIA_path_gpu(float *d_mat1, float *d_res, int *d_res_path,
                                    cudaMemcpyDeviceToDevice));
 
         // Verify final result
-        float* verify_c = new float[n];
-        cudaMemcpy(verify_c, d_res_offset, n * sizeof(float), cudaMemcpyDeviceToHost);
-        printf("First row of result (first 5):\n");
-        for(int i = 0; i < min(5, n); i++) {
-            printf("%.2f ", verify_c[i]);
-        }
-        printf("\n");
-        delete[] verify_c;
 
         // Cleanup
         cudaFree(d_a);
@@ -392,8 +352,6 @@ void minplus_NVIDIA_path_gpu(float *d_mat1, float *d_res, int *d_res_path,
         throw;
     }
 
-    delete[] h_mat1;
-    delete[] h_res;
 }
 
 __global__ void minplus_kernel(float *A, float *B, float *C, int m, int n, int k)
