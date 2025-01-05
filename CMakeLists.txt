@@ -22,6 +22,17 @@ set(JET_PARTITIONER_DIR "/home/thaham/bachelor_project/Jet-Partitioner")
 # FlatBuffers Spack Path
 set(FLATBUFFERS_DIR "/home/thaham/bachelor_project/spack/opt/spack/linux-ubuntu22.04-sapphirerapids/gcc-11.4.0/flatbuffers-24.3.7-63wczour3cdlvcj4j6ze4y3daixbpxqq")
 
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    # Add debug info even in Release mode
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -g")
+    set(CMAKE_CUDA_FLAGS_RELEASE "${CMAKE_CUDA_FLAGS_RELEASE} -g")
+    
+    # Enable some runtime checks even in Release
+    add_definitions(-D_GLIBCXX_ASSERTIONS)
+    
+    # Add specific optimization flags
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -fno-aggressive-loop-optimizations")
+endif()
 
 # Set the compiler to nvcc_wrapper if CUDA is enabled
 if (WITH_CUDA)

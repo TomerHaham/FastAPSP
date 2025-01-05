@@ -52,18 +52,22 @@ int main(int argc, char **argv)
                 version = (strcmp(argv[i + 1], "true") == 0);
             }
         }
-
-    // run the kernel
+// run the kernel
     fap::fapGraph G(file, directed, weighted, K, partitioner, version);
     G.preCondition();
-    if (G.isSplit() && K >= 3) {
-        G.solveSubGraph(1, true);
-        G.solveSubGraph(2, true);
-        G.solveSubGraph(3, true);
-    } else {
-        G.solve();
-    }
-            auto end_time = std::chrono::high_resolution_clock::now();
+if (G.isSplit() && K >= 3) {
+    printf("Processing first three subgraphs in split mode\n");
+    G.solveSubGraph(1, true);
+    printf("Subgraph 1 processing complete\n");
+    G.solveSubGraph(2, true);
+    printf("Subgraph 2 processing complete\n");
+    G.solveSubGraph(3, true);
+    printf("Subgraph 3 processing complete\n");
+} else {
+    printf("Processing all subgraphs in non-split mode\n");
+    G.solve();
+    printf("All subgraphs processing complete\n");
+}            auto end_time = std::chrono::high_resolution_clock::now();
         double total_runtime = std::chrono::duration<double>(end_time - start_time).count();
             std::cout << "Total runtime: " << total_runtime << " seconds." << std::endl;
 

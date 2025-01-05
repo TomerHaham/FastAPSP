@@ -24,6 +24,7 @@ class fapGraphMoreTaskMPI: public fapGraph{
  private:
     void balanced_tasks(int *tasks_array, int *tasks_num,
         int *tasks_offset, int K, int P);
+    std::unordered_map<int, int> task_execution_count; 
  public:
     // distribute the tasks to process
     std::unordered_map<int, std::vector<int>> task_per_process;

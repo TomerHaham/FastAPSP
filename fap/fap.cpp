@@ -17,6 +17,10 @@
 #include <string>
 #include <unordered_map>
 #include <algorithm>
+#include <atomic>
+#include <mutex>
+#include <set>
+#include <stdexcept>
 
 #include "fap/fap.h"
 #include "fap/utils.h"
@@ -38,7 +42,11 @@
 }
 
 namespace fap {
-
+std::atomic<int>* fapGraph::current_run = new std::atomic<int>(0);
+fapGraph::~fapGraph() {
+    // ... any existing cleanup
+    delete current_run;  // Clean up the static atomic
+}
 fapGraph::fapGraph(std::string input_graph,
                   bool directed, bool weighted, int32_t K, std::string partitioner, bool version) {
   // build graph from file.
@@ -179,6 +187,8 @@ template<typename T>
 void fapGraph::run(float *subgraph_dist,
                       int *subgraph_path,
                       const int32_t sub_graph_id) {
+    
+
   const int bdy_num = C_BlockBdy_num[sub_graph_id];
   const int sub_vertexs = C_BlockVer_num[sub_graph_id];
   const int inner_num = sub_vertexs - bdy_num;
@@ -188,10 +198,8 @@ void fapGraph::run(float *subgraph_dist,
   vector<float> inner_to_bdy_dist(inner_to_bdy_size, fap::MAXVALUE);
   vector<float> inner_to_inner_dist(inner_to_inner_size, fap::MAXVALUE);
   vector<int> inner_to_inner_path(inner_to_inner_size, -1);
-
-  // new version
-
-  if (this->version){
+      // new version
+      if (this->version){
  float *d_res = nullptr;
     float *d_mat1 = nullptr;
     int *d_rowOffsetArc = nullptr, *d_colValueArc = nullptr;
@@ -425,32 +433,47 @@ LaunchMysubMatDecodePathKernel(
 }
 }
 
+
 // run fast APSP algorithm.
-int32_t fapGraph::solve(bool is_path_needed) {
-  int64_t graph_size = (int64_t)num_vertexs * num_vertexs;
-  dist.resize(graph_size);
-  path.resize(graph_size);
-  int64_t offset = 0;
-  for (int i = 1; i <= K; i++) {
-    run(dist.data() + offset, path.data() + offset, i);
-    int64_t size = (int64_t)num_vertexs * C_BlockVer_num[i];
-    offset += size;
-  }
+int32_t fapGraph::solve(bool is_path_needed) {  // <-- Need ; here
+    int64_t graph_size = (int64_t)num_vertexs * num_vertexs;
+    dist.resize(graph_size);
+    path.resize(graph_size);
+    int64_t offset = 0;
+    for (int i = 1; i <= K; i++) {
+        run(dist.data() + offset, path.data() + offset, i);
+        int64_t size = (int64_t)num_vertexs * C_BlockVer_num[i];
+        offset += size;
+    }
+    return 0;
 }
-
 // run fast APSP algorithm in one subgraph.
-int32_t fapGraph::solveSubGraph(int32_t sub_graph_id,
-                              bool is_path_needed) {
-  // init data.
-  const int sub_vertexs = C_BlockVer_num[sub_graph_id];
-  int64_t subgraph_dist_size = (int64_t)sub_vertexs * this->num_vertexs;
-  this->subgraph_dist.resize(subgraph_dist_size);
-  this->subgraph_path.resize(subgraph_dist_size);
-  this->current_subgraph_id = sub_graph_id;
+int32_t fapGraph::solveSubGraph(int32_t sub_graph_id, bool is_path_needed) {
+    // Add a static set to track which subgraphs have been processed
+    static std::set<int32_t> processed_subgraphs;
+    
+    // Check if this subgraph has already been processed
+    if (processed_subgraphs.find(sub_graph_id) != processed_subgraphs.end()) {
+        printf("Warning: Subgraph %d has already been processed, skipping.\n", sub_graph_id);
+        return 0;
+    }
 
-  run(subgraph_dist.data(), subgraph_path.data(), sub_graph_id);
+    // init data.
+    const int sub_vertexs = C_BlockVer_num[sub_graph_id];
+    int64_t subgraph_dist_size = (int64_t)sub_vertexs * this->num_vertexs;
+    this->subgraph_dist.resize(subgraph_dist_size);
+    this->subgraph_path.resize(subgraph_dist_size);
+    this->current_subgraph_id = sub_graph_id;
+
+    // Mark as processed before running
+    processed_subgraphs.insert(sub_graph_id);
+    
+    //printf("Starting execution of subgraph %d\n", sub_graph_id);
+    run(subgraph_dist.data(), subgraph_path.data(), sub_graph_id);
+    //printf("Completed execution of subgraph %d\n", sub_graph_id);
+    
+    return 0;
 }
-
 std::vector<int32_t> fapGraph::getMapping() {
   return this->st2ed;
 }
@@ -540,7 +563,7 @@ bool fapGraph::check_result(float *dist, int *path,
                int *source, int source_num, int vertexs,
                int *adj_size, int *row_offset,
                int *col_val, float *weight, int *graph_id) {
-  fap::check_ans(dist, path, source, source_num, vertexs,
+  return fap::check_ans(dist, path, source, source_num, vertexs,
           adj_size, row_offset, col_val, weight, graph_id);
 }
 }  // namespace fap

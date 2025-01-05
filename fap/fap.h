@@ -16,6 +16,9 @@
 #include <string>
 #include <unordered_map>
 #include <sstream>
+#include <atomic>
+#include <mutex>
+#include <unordered_map>
 
 namespace fap {
 
@@ -68,7 +71,8 @@ class fapGraph{
     template<typename T>
 T* calculateDeviceOffset(T* base_ptr, size_t offset_elements, 
                         size_t total_elements, const char* ptr_name);
-
+static std::atomic<int>* current_run; 
+    std::unordered_map<int32_t, int> subgraph_run_counts;
  public:
     int32_t num_vertexs;
     int32_t num_edges;
@@ -78,7 +82,8 @@ T* calculateDeviceOffset(T* base_ptr, size_t offset_elements,
     std::vector<float> weight;
     bool directed;
     bool weighted;
-
+ ~fapGraph();  // Add this
+    // ... rest of your public members
     // contruct data struct
     fapGraph(std::string input_graph,
             bool directed, bool weight, int32_t K, std::string partitioner, bool version);
