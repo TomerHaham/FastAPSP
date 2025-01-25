@@ -36,6 +36,11 @@ class fapGraph{
     bool is_split;
     bool is_path_needed;
     bool version;
+    double time_partitioning;
+    double time_sssp;
+    double time_floyd;
+    double time_min_plus;
+    double time_data_transformation;
     std::string output_file;
     std::vector<float> dist;
     std::vector<int32_t> path;
@@ -125,6 +130,11 @@ static std::atomic<int>* current_run;
     float getDistanceP2P();
     // return path of Point2Point
     std::vector<int32_t> getPathP2P();
+    double getTimeSSSP();
+    double getTimeFloyd();
+    double getTimeMinPlus();
+    double getTimePartitioning();
+    double getTimeData();
     // print results 
     // Tomer added
     void printResalts();

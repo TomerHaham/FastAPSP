@@ -324,7 +324,14 @@ int main(int argc, char **argv)
             double buffer_io_time = 0.0;
             double mapping_time = 0.0;
             long maxRSS = 0;
+
             std::cout << "Total runtime: " << total_runtime << " seconds.\n";
+            std::cout << "paritition runtime: " << G.getTimePartitioning() << " seconds.\n";
+            std::cout << "sssp runtime: " << G.getTimeSSSP() << " seconds.\n";
+            std::cout << "floyd runtime: " << G.getTimeFloyd() << " seconds.\n";
+            std::cout << "min plus runtime: " << G.getTimeMinPlus() << " seconds.\n";
+            std::cout << "data runtime: " << G.getTimeData() << " seconds.\n";
+
             writer.updateResourceConsumption(buffer_io_time, mapping_time, total_runtime, maxRSS);
 
             uint64_t total_edge_cut = 0;  // Example placeholder

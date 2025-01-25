@@ -78,9 +78,11 @@ fapGraph::fapGraph(std::string input_graph,
       adj_size.data(), row_offset.data(), col_val.data(), weight.data(),
       input_graph, directed, weighted);
   // get subgraph message from metis.
+  double time_partitioning;
   readIdFile_METIS(
       graph_id.data(), BlockVer, K, directed, vertexs, edges,
-      adj_size.data(), row_offset.data(), col_val.data(), weight.data(), partitioner);
+      adj_size.data(), row_offset.data(), col_val.data(), weight.data(), partitioner, time_partitioning);
+      this->time_partitioning = time_partitioning;
 }
 
 fapGraph::fapGraph(int32_t num_vertexs, int64_t num_edges,
@@ -219,7 +221,7 @@ void fapGraph::run(float *subgraph_dist,
         checkCudaErrors(cudaMemcpy(d_colValueArc, col_val.data(), this->num_edges * sizeof(int), cudaMemcpyHostToDevice));
         checkCudaErrors(cudaMemcpy(d_weightArc, weight.data(), this->num_edges * sizeof(float), cudaMemcpyHostToDevice));
 
-
+        auto start_time_sssp = std::chrono::high_resolution_clock::now();
         // Handle boundary data on GPU
         handle_boundry_path_data_on_gpu(subgraph_dist, subgraph_path,
                             this->num_vertexs, this->num_edges, bdy_num,
@@ -227,6 +229,8 @@ void fapGraph::run(float *subgraph_dist,
                             weight.data(), st2ed.data(), C_BlockVer_offset[sub_graph_id],
                             d_res, d_rowOffsetArc, d_colValueArc, d_weightArc);
         checkCudaErrors(cudaDeviceSynchronize());
+        auto end_time_sssp = std::chrono::high_resolution_clock::now();
+        this->time_sssp = std::chrono::duration<double>(end_time_sssp - start_time_sssp).count();
 
         // Allocate and copy data for graph arrays
         checkCudaErrors(cudaMalloc((void**)&d_graph_id, graph_id.size() * sizeof(int)));
@@ -243,6 +247,7 @@ void fapGraph::run(float *subgraph_dist,
         checkCudaErrors(cudaMemcpy(d_adj_size, adj_size.data(), adj_size.size() * sizeof(int), cudaMemcpyHostToDevice));
 
         int start = C_BlockVer_offset[sub_graph_id];
+        auto start_time_data = std::chrono::high_resolution_clock::now();
 
         // Launch kernel
         LaunchMysubMatBuildKernel(
@@ -250,7 +255,8 @@ void fapGraph::run(float *subgraph_dist,
             d_subGraph_path, d_rowOffsetArc, d_colValueArc,
             d_weightArc, sub_vertexs, bdy_num, this->num_vertexs,
             d_graph_id, d_st2ed, d_ed2st, d_adj_size, graph_id, start, this->num_edges);
-
+        auto end_time_data = std::chrono::high_resolution_clock::now();
+        this->time_data_transformation = std::chrono::duration<double>(end_time_data - start_time_data).count();
         checkCudaErrors(cudaFree(d_graph_id));
         checkCudaErrors(cudaFree(d_ed2st));
         checkCudaErrors(cudaFree(d_adj_size));
@@ -273,15 +279,18 @@ void fapGraph::run(float *subgraph_dist,
 
     // 2.2 run floyd algorithm
 // 2.2 run floyd algorithm
+        auto start_time_floyd = std::chrono::high_resolution_clock::now();
         fap::floyd_path_gpu(sub_vertexs, d_subMat, d_subMat_path);
-        
-        // Copy floyd results back to host
-
-
+        auto end_time_floyd = std::chrono::high_resolution_clock::now();
+        this->time_floyd = std::chrono::duration<double>(end_time_floyd - start_time_floyd).count();
 
         // 3.1 Setup mat1 for min-plus
         checkCudaErrors(cudaMalloc((void**)&d_mat1, inner_num * bdy_num * sizeof(float)));
+        auto start_time_data_my_mat = std::chrono::high_resolution_clock::now();
         LaunchMyMat1BuildKernel(d_mat1, d_subMat, inner_num, bdy_num, sub_vertexs);
+        auto end_time_data_my_mat = std::chrono::high_resolution_clock::now();
+        this->time_data_transformation += std::chrono::duration<double>(end_time_data_my_mat - start_time_data_my_mat).count();
+
         
 
         // 3.2 Min-plus computation
@@ -292,6 +301,7 @@ void fapGraph::run(float *subgraph_dist,
         #ifdef WITH_GPU
         part_num = static_cast<int>(ceil(static_cast<double>(inner_num) / MEM_NUM));
         #endif
+        auto start_time_min_plus = std::chrono::high_resolution_clock::now();
 
 if (part_num == 1) {
     fap::min_plus_path_advanced_gpu(
@@ -326,13 +336,20 @@ if (part_num == 1) {
         }
     }
 }
+        auto end_time_min_plus = std::chrono::high_resolution_clock::now();
+        this->time_min_plus = std::chrono::duration<double>(end_time_min_plus - start_time_min_plus).count();
 
         // 3.3 Final decode
+        auto start_time_data_decode = std::chrono::high_resolution_clock::now();
+
 LaunchMysubMatDecodePathKernel(
     d_subMat, d_subMat_path,
     d_res, d_subGraph_path,
     d_st2ed, C_BlockVer_offset[sub_graph_id],
     sub_vertexs, sub_vertexs, this->num_vertexs);
+             auto end_time_data_decode = std::chrono::high_resolution_clock::now();
+        this->time_data_transformation += std::chrono::duration<double>(end_time_data_decode - start_time_data_decode).count();
+
 
             checkCudaErrors(cudaMemcpy(subgraph_dist, d_res, 
                               subgraph_dist_size * sizeof(float), 
@@ -550,6 +567,29 @@ void fapGraph::printResalts(){
   }
 }
 */
+double fapGraph::getTimePartitioning(){
+  return this->time_partitioning;
+}
+
+double fapGraph::getTimeData(){
+  return this->time_data_transformation;
+}
+
+double fapGraph::getTimeFloyd(){
+  return this->time_floyd;
+}
+
+double fapGraph::getTimeMinPlus(){
+  return this->time_min_plus;
+}
+double fapGraph::getTimeSSSP(){
+  return this->time_sssp;
+}
+
+
+
+
+
 
 float fapGraph::getDistanceP2P() {
   // TODO(Liu-xiandong):

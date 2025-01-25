@@ -72,6 +72,18 @@ bool check_ans(float *dist, int *path, int *source, int source_num, int vertexs,
                 if (graph_id[ver] == graph_id[des]) {
                     printf("wrong in the floyd\n");
                 } else {
+                    if (fabs(now_dist - check_dist[des]) > eps) {
+    printf("\nDetailed path analysis:\n");
+    printf("Source vertex: %d, Destination: %d\n", ver, des);
+    printf("Current path through vertex %d\n", bridge);
+    printf("Current distance: %.6f\n", now_dist);
+    printf("Dijkstra distance: %.6f\n", check_dist[des]);
+    printf("Distance to bridge: %.6f\n", ver2bridge);
+    // Print a few neighboring vertices and their distances
+    for (int i = max(0, des-2); i <= min(vertexs-1, des+2); i++) {
+        printf("Distance to vertex %d: %.6f\n", i, check_dist[i]);
+    }
+}
                     printf("maybe wrong in the minplus\n");
                 }
                 return false;

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.23)
 
 # Set the project name and version
 project(fapApp VERSION 0.1 LANGUAGES CXX CUDA)
@@ -8,16 +8,19 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CUDA_STANDARD_REQUIRED True)
+set(CUDA_ARCH_BIN "89")
+set(CUDA_ARCH_PTX "89")
+#set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH} /home/thaham/Jet-Partitioner/install/lib/cmake/jet/")
 
 option(WITH_CUDA "Enable the CUDA backend for supported interfaces" ON)
 
 # Set paths for KaHIP, Metis, Jet Partitioner (use Spack paths or set manually)
 set(KAHIP_DIR "/home/thaham/bachelor_project/spack/opt/spack/linux-ubuntu22.04-sapphirerapids/gcc-11.4.0/kahip-3.14-drjnai36m4zbt7k2y46yn5xiz5toknvs")
 set(METIS_DIR "/home/thaham/bachelor_project/spack/opt/spack/linux-ubuntu22.04-sapphirerapids/gcc-11.4.0/metis-5.1.0-qdyf5j343pnyx43w2s3egtrk7v4j3f3n")
-set(LOC "/home/thaham/bachelor_project/Jet-Partitioner/container")
+set(LOC "/home/thaham/Jet-Partitioner/container")
 set(KOKKOS_DIR "${LOC}/install/kokkos")
 set(KOKKOS_KERNELS_DIR "${LOC}/install/kokkos-kernels")
-set(JET_PARTITIONER_DIR "/home/thaham/bachelor_project/Jet-Partitioner")
+set(JET_PARTITIONER_DIR "/home/thaham/Jet-Partitioner")
 
 # FlatBuffers Spack Path
 set(FLATBUFFERS_DIR "/home/thaham/bachelor_project/spack/opt/spack/linux-ubuntu22.04-sapphirerapids/gcc-11.4.0/flatbuffers-24.3.7-63wczour3cdlvcj4j6ze4y3daixbpxqq")
@@ -26,10 +29,10 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
     # Add debug info even in Release mode
     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -g")
     set(CMAKE_CUDA_FLAGS_RELEASE "${CMAKE_CUDA_FLAGS_RELEASE} -g")
-    
+
     # Enable some runtime checks even in Release
     add_definitions(-D_GLIBCXX_ASSERTIONS)
-    
+
     # Add specific optimization flags
     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -fno-aggressive-loop-optimizations")
 endif()
@@ -56,6 +59,12 @@ endif()
 
 # Find MPI
 find_package(MPI REQUIRED)
+
+# Find Jet Partitioner package
+set(KokkosKernels_DIR "/home/thaham/Jet-Partitioner/container/install/kokkos-kernels/lib/cmake/KokkosKernels/")
+set(jet_DIR "/home/thaham/Jet-Partitioner/install/lib/cmake/jet")
+
+find_package(jet CONFIG REQUIRED)
 
 # Include directories for KaHIP, Metis, Jet Partitioner, Kokkos, KokkosKernels, FlatBuffers
 include_directories("${KAHIP_DIR}/include")
@@ -98,7 +107,9 @@ foreach(examplefile IN LISTS examples)
         ${KOKKOS_DIR}/lib/libkokkossimd.a
         ${KOKKOS_KERNELS_DIR}/lib/libkokkoskernels.a
         ${CUDA_LIBRARIES} OpenMP::OpenMP_CXX cuda
-        "${FLATBUFFERS_DIR}/lib/libflatbuffers.so")  # Link FlatBuffers library
+        "${FLATBUFFERS_DIR}/lib/libflatbuffers.so"
+        jet::jet  # Link the Jet Partitioner package
+    )
 
     # Add include paths for each example
     target_include_directories(${examplename} PUBLIC
