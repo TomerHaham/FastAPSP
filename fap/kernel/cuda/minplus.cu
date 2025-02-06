@@ -209,7 +209,7 @@ __global__ void memset2D_path(float *mat, int dim)
 }
 
 void minplus_NVIDIA_path(float *mat1, float *mat2, int *mat2_path,
-                                 float *res, int *res_path, int m, int n, int k)
+                                 float *res, int *res_path, int m, int n, int k, size_t &gpu_mem)
 {
     float *d_a;
     float *d_b;
@@ -250,6 +250,10 @@ void minplus_NVIDIA_path(float *mat1, float *mat2, int *mat2_path,
     
     checkCudaErrors(cudaMemcpy2D(res, sizeof(float) * n, d_c, n_padding * sizeof(float), sizeof(float) * n, m, cudaMemcpyDeviceToHost));
     checkCudaErrors(cudaMemcpy2D(res_path, sizeof(int) * n, d_c_path, n_padding * sizeof(int), sizeof(int) * n, m, cudaMemcpyDeviceToHost));
+	size_t free_memory, total_memory;
+    cudaMemGetInfo(&free_memory, &total_memory);
+    gpu_mem = total_memory - free_memory;
+
 
     cudaFree(d_a);
     cudaFree(d_b);

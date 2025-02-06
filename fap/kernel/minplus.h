@@ -91,10 +91,10 @@ void min_plus_path_advanced_gpu(float *d_mat1, float *d_res, int *d_subGraph_pat
 
 
 void min_plus_path_advanced(float *mat1, float *mat2, int *mat2_path,
-    float *res, int *path, int M, int N, int K) {
+    float *res, int *path, int M, int N, int K, size_t &gpu_mem) {
 #ifdef WITH_CUDA
     std::cout<<"lxd_debug: run the cuda kernel!"<<std::endl;
-    minplus_NVIDIA_path(mat1, mat2, mat2_path, res, path, M, N, K);
+    minplus_NVIDIA_path(mat1, mat2, mat2_path, res, path, M, N, K, gpu_mem);
 #elif defined(WITH_HIP)
     minplus_AMD_path(mat1, mat2, mat2_path, res, path, M, N, K);
 #else

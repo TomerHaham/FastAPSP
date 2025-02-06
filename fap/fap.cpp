@@ -11,7 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
+#include <chrono>
 #include <assert.h>
 #include <vector>
 #include <string>
@@ -26,6 +26,7 @@
 #include "fap/utils.h"
 #include "fap/kernel.h"
 #include <cuda.h>
+#include <cuda_runtime.h>
 
 
 
@@ -48,7 +49,7 @@ fapGraph::~fapGraph() {
     delete current_run;  // Clean up the static atomic
 }
 fapGraph::fapGraph(std::string input_graph,
-                  bool directed, bool weighted, int32_t K, std::string partitioner, bool version) {
+                  bool directed, bool weighted, int32_t K, std::string partitioner, bool version, std::chrono::time_point<std::chrono::high_resolution_clock> &endTimeIo) {
   // build graph from file.
   int vertexs;
   int edges;
@@ -72,17 +73,22 @@ fapGraph::fapGraph(std::string input_graph,
   this->C_BlockVer_offset.assign(K + 1, 0);
   this->C_BlockBdy_num.assign(K + 1, 0);
   this->C_BlockBdy_offset.assign(K + 1, 0);
-
+  this->mem_cons_floyd = 0;
+  this->mem_cons_min_plus = 0;
+  this->mem_cons_sssp = 0;
   // get message of Graph from input file.
   readMatFile(vertexs, edges,
       adj_size.data(), row_offset.data(), col_val.data(), weight.data(),
       input_graph, directed, weighted);
+  endTimeIo = std::chrono::high_resolution_clock::now();
   // get subgraph message from metis.
-  double time_partitioning;
+  double time_partitioning = 0;
+  double edge_cut = 0;
   readIdFile_METIS(
       graph_id.data(), BlockVer, K, directed, vertexs, edges,
-      adj_size.data(), row_offset.data(), col_val.data(), weight.data(), partitioner, time_partitioning);
+      adj_size.data(), row_offset.data(), col_val.data(), weight.data(), partitioner, time_partitioning, edge_cut);
       this->time_partitioning = time_partitioning;
+      this->edge_cut = edge_cut;
 }
 
 fapGraph::fapGraph(int32_t num_vertexs, int64_t num_edges,
@@ -230,7 +236,11 @@ void fapGraph::run(float *subgraph_dist,
                             d_res, d_rowOffsetArc, d_colValueArc, d_weightArc);
         checkCudaErrors(cudaDeviceSynchronize());
         auto end_time_sssp = std::chrono::high_resolution_clock::now();
-        this->time_sssp = std::chrono::duration<double>(end_time_sssp - start_time_sssp).count();
+        this->time_sssp += std::chrono::duration<double>(end_time_sssp - start_time_sssp).count();
+        size_t free_memory, total_memory;
+        cudaMemGetInfo(&free_memory, &total_memory);
+        //this->mem_cons_sssp += total_memory - free_memory;
+        this->mem_cons_sssp += static_cast<double>(total_memory - free_memory) / (1024.0 * 1024.0 * 1024.0);
 
         // Allocate and copy data for graph arrays
         checkCudaErrors(cudaMalloc((void**)&d_graph_id, graph_id.size() * sizeof(int)));
@@ -256,7 +266,7 @@ void fapGraph::run(float *subgraph_dist,
             d_weightArc, sub_vertexs, bdy_num, this->num_vertexs,
             d_graph_id, d_st2ed, d_ed2st, d_adj_size, graph_id, start, this->num_edges);
         auto end_time_data = std::chrono::high_resolution_clock::now();
-        this->time_data_transformation = std::chrono::duration<double>(end_time_data - start_time_data).count();
+        this->time_data_transformation += std::chrono::duration<double>(end_time_data - start_time_data).count();
         checkCudaErrors(cudaFree(d_graph_id));
         checkCudaErrors(cudaFree(d_ed2st));
         checkCudaErrors(cudaFree(d_adj_size));
@@ -282,7 +292,12 @@ void fapGraph::run(float *subgraph_dist,
         auto start_time_floyd = std::chrono::high_resolution_clock::now();
         fap::floyd_path_gpu(sub_vertexs, d_subMat, d_subMat_path);
         auto end_time_floyd = std::chrono::high_resolution_clock::now();
-        this->time_floyd = std::chrono::duration<double>(end_time_floyd - start_time_floyd).count();
+        this->time_floyd += std::chrono::duration<double>(end_time_floyd - start_time_floyd).count();
+        size_t free_memory_f, total_memory_f;
+        cudaMemGetInfo(&free_memory_f, &total_memory_f);
+        //this->mem_cons_floyd += total_memory_f - free_memory_f;
+        this->mem_cons_floyd += static_cast<double>(total_memory_f - free_memory_f) / (1024.0 * 1024.0 * 1024.0);
+
 
         // 3.1 Setup mat1 for min-plus
         checkCudaErrors(cudaMalloc((void**)&d_mat1, inner_num * bdy_num * sizeof(float)));
@@ -337,8 +352,10 @@ if (part_num == 1) {
     }
 }
         auto end_time_min_plus = std::chrono::high_resolution_clock::now();
-        this->time_min_plus = std::chrono::duration<double>(end_time_min_plus - start_time_min_plus).count();
-
+        this->time_min_plus += std::chrono::duration<double>(end_time_min_plus - start_time_min_plus).count();
+        size_t free_memory_min, total_memory_min;
+        cudaMemGetInfo(&free_memory_min, &total_memory_min);
+        this->mem_cons_min_plus +=static_cast<double>(total_memory_min - free_memory_min)/ (1024.0 * 1024.0 * 1024.0);
         // 3.3 Final decode
         auto start_time_data_decode = std::chrono::high_resolution_clock::now();
 
@@ -347,11 +364,11 @@ LaunchMysubMatDecodePathKernel(
     d_res, d_subGraph_path,
     d_st2ed, C_BlockVer_offset[sub_graph_id],
     sub_vertexs, sub_vertexs, this->num_vertexs);
-             auto end_time_data_decode = std::chrono::high_resolution_clock::now();
-        this->time_data_transformation += std::chrono::duration<double>(end_time_data_decode - start_time_data_decode).count();
+    auto end_time_data_decode = std::chrono::high_resolution_clock::now();
+    this->time_data_transformation += std::chrono::duration<double>(end_time_data_decode - start_time_data_decode).count();
 
 
-            checkCudaErrors(cudaMemcpy(subgraph_dist, d_res, 
+    checkCudaErrors(cudaMemcpy(subgraph_dist, d_res, 
                               subgraph_dist_size * sizeof(float), 
                               cudaMemcpyDeviceToHost));
     
@@ -369,18 +386,34 @@ LaunchMysubMatDecodePathKernel(
         if (d_subMat) checkCudaErrors(cudaFree(d_subMat));
         if (d_subMat_path) checkCudaErrors(cudaFree(d_subMat_path));
         if (d_st2ed) checkCudaErrors(cudaFree(d_st2ed));
-
+        /*
+            std::cout << "paritition runtime: " << this->time_partitioning << " seconds.\n";
+            std::cout << "sssp runtime: " << this->time_sssp << " seconds.\n";
+            std::cout << "floyd runtime: " << this->time_floyd << " seconds.\n";
+            std::cout << "min plus runtime: " << time_min_plus << " seconds.\n";
+            std::cout << "data runtime: " << time_data_transformation << " seconds.\n";
+            std::cout << "gpu memory sssp: " << this->mem_cons_sssp << " \n";
+            std::cout << "gpu memory floyd: " << this->mem_cons_floyd << " \n";
+            std::cout << "gpu memory min plus: " << this->mem_cons_min_plus << " \n";
+            std::cout << "edge cut: " << this->edge_cut << " \n";
+*/
 }else{
 
   // stage 1. run sssp algorithm in boundry points.
+  size_t gpu_mem = 0;
+  auto start_time_sssp = std::chrono::high_resolution_clock::now();
   fap::handle_boundry_path(
             subgraph_dist, subgraph_path,
             this->num_vertexs, this->num_edges, bdy_num,
             adj_size.data(), row_offset.data(), col_val.data(), weight.data(),
-            st2ed.data(), C_BlockVer_offset[sub_graph_id]);
-
+            st2ed.data(), C_BlockVer_offset[sub_graph_id], gpu_mem);
+  auto end_time_sssp = std::chrono::high_resolution_clock::now();
+  this->time_sssp += std::chrono::duration<double>(end_time_sssp - start_time_sssp).count();
+  //this->mem_cons_sssp += gpu_mem;
+  this->mem_cons_sssp += static_cast<double>(gpu_mem) / (1024.0 * 1024.0 * 1024.0);
   // stage 2. run floyd algorithm in all points of subgraph.
   // 2.1 move data from subgraph matrix to floyd matrix.
+  auto start_time_data = std::chrono::high_resolution_clock::now();
   fap::MysubMatBuild_path(
       inner_to_inner_dist.data(), inner_to_inner_path.data(),
       subgraph_dist, subgraph_path,
@@ -388,15 +421,23 @@ LaunchMysubMatDecodePathKernel(
       sub_vertexs, bdy_num,
       this->num_vertexs, st2ed.data(), ed2st.data(),
       adj_size.data(), row_offset.data(), col_val.data(), weight.data());
+  auto end_time_data = std::chrono::high_resolution_clock::now();
+  this->time_data_transformation += std::chrono::duration<double>(end_time_data - start_time_data).count();
 
-  // 2.2 run floyd algorithm
-  fap::floyd_path(sub_vertexs,
-    inner_to_inner_dist.data(), inner_to_inner_path.data());
-
+  auto start_time_floyd = std::chrono::high_resolution_clock::now();
+  fap::floyd_path(sub_vertexs,inner_to_inner_dist.data(), inner_to_inner_path.data(), gpu_mem);
+  auto end_time_floyd = std::chrono::high_resolution_clock::now();
+  this->time_floyd += std::chrono::duration<double>(end_time_floyd - start_time_floyd).count();
+  
+        //this->mem_cons_floyd += total_memory_f - free_memory_f;
+        this->mem_cons_floyd += static_cast<double>(gpu_mem) / (1024.0 * 1024.0 * 1024.0);
   // stage 3. run min-plus algorithm in boundry points to all other points.
   // 3.1 move data from subMat to a thin matrix.
+  auto start_time_data_my_mat = std::chrono::high_resolution_clock::now();
   fap::MyMat1Build(inner_to_bdy_dist.data(), inner_to_inner_dist.data(),
             inner_num, bdy_num, sub_vertexs);
+  auto end_time_data_my_mat = std::chrono::high_resolution_clock::now();
+  this->time_data_transformation += std::chrono::duration<double>(end_time_data_my_mat - start_time_data_my_mat).count();
   int64_t offset = (int64_t)bdy_num * this->num_vertexs;
 
   // 3.2 run min-plus
@@ -408,6 +449,8 @@ LaunchMysubMatDecodePathKernel(
   part_num = static_cast<int>(
       ceil(static_cast<double>(inner_num) / MEM_NUM));
 #endif
+  auto start_time_min_plus = std::chrono::high_resolution_clock::now();
+
   // GPU memory is expansive and maybe too big.
   if (part_num == 1) {
       fap::min_plus_path_advanced(
@@ -415,7 +458,7 @@ LaunchMysubMatDecodePathKernel(
           subgraph_dist, subgraph_path,
           subgraph_dist + offset,
           subgraph_path + offset,
-          inner_num, this->num_vertexs, bdy_num);
+          inner_num, this->num_vertexs, bdy_num, gpu_mem);
   } else {
       int block_size = inner_num / part_num;
       int last_size = inner_num - block_size * (part_num - 1);
@@ -429,24 +472,33 @@ LaunchMysubMatDecodePathKernel(
               subgraph_dist, subgraph_path,
               subgraph_dist + offset_value,
               subgraph_path + offset_value,
-              last_size, this->num_vertexs, bdy_num);
+              last_size, this->num_vertexs, bdy_num, gpu_mem);
         } else {
             fap::min_plus_path_advanced(
               inner_to_bdy_dist.data() + i * block_size * bdy_num,
               subgraph_dist, subgraph_path,
               subgraph_dist + offset_value,
               subgraph_path + offset_value,
-              block_size, this->num_vertexs, bdy_num);
+              block_size, this->num_vertexs, bdy_num, gpu_mem);
         }
       }
   }
-
+  auto end_time_min_plus = std::chrono::high_resolution_clock::now();
+  this->time_min_plus += std::chrono::duration<double>(end_time_min_plus - start_time_min_plus).count();
+  size_t free_memory_min, total_memory_min;
+  this->mem_cons_min_plus += static_cast<double>(gpu_mem) / (1024.0 * 1024.0 * 1024.0);
   // 3.3 move data from floyd matrix to subgraph matrix.
+  auto start_time_data_decode = std::chrono::high_resolution_clock::now();
   fap::MysubMatDecode_path(
       inner_to_inner_dist.data(), inner_to_inner_path.data(),
       subgraph_dist, subgraph_path,
       C_BlockVer_offset[sub_graph_id], sub_vertexs,
       sub_vertexs, this->num_vertexs, st2ed.data());
+  auto end_time_data_decode = std::chrono::high_resolution_clock::now();
+  this->time_data_transformation += std::chrono::duration<double>(end_time_data_decode - start_time_data_decode).count();
+
+
+  
 }
 }
 
@@ -585,9 +637,37 @@ double fapGraph::getTimeMinPlus(){
 double fapGraph::getTimeSSSP(){
   return this->time_sssp;
 }
+int fapGraph::getBoundaryNum(){
+  int boundaryNum = 0;
+  for (int i = 0; i < C_BlockBdy_num.size(); ++i){
+    boundaryNum += C_BlockBdy_num[i];
+  }
+  return boundaryNum;
+}
 
+int fapGraph::getInnerNum(){
+  int innerNum = 0;
+  for (int i = 0; i < C_BlockVer_num.size(); ++i){
+    innerNum += C_BlockVer_num[i] - C_BlockBdy_num[i];
+  }
+  return innerNum;
+}
 
+double fapGraph::getMemConsSSSP(){
+  return this->mem_cons_sssp/this->K;
+}
 
+double fapGraph::getMemConsFloyd(){
+  return this->mem_cons_floyd/this->K;
+}
+
+double fapGraph::getMemConsMinPlus(){
+  return this->mem_cons_min_plus/this->K;
+}
+
+double fapGraph::getEdgeCut(){
+  return this->edge_cut;
+}
 
 
 

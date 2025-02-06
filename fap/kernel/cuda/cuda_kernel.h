@@ -26,14 +26,14 @@ void handle_boundry_Nvidia_GPU_data_on_gpu(float *subGraph, int vertexs, int edg
 void handle_boundry_Nvidia_GPU(
     float *subGraph, int vertexs, int edges, int bdy_num,
     int *adj_size, int *row_offset, int *col_val, float *weight,
-    int *st2ed, int offset);
+    int *st2ed, int offset, size_t &gpu_mem);
 
 // floyd_kernel
 void floyd_NVIDIA_GPU(int num_node, float *arc);
 
 void floyd_GPU_Nvidia_path_gpu(int num_node, float *d_Len, int *d_Path);
 
-void floyd_GPU_Nvidia_path(int num_node, float *arc, int *path);
+void floyd_GPU_Nvidia_path(int num_node, float *arc, int *path, size_t &gpu_mem);
 
 void floyd_path_A_Nvidia(float *A, int *A_path,
     const int row, const int col, float *diag, int *diag_path);
@@ -46,7 +46,7 @@ void floyd_min_plus_Nvidia(float *mat1, float *mat2,
 void minplus_NVIDIA_GPU(float *mat1, float *mat2, float *res,
     int M, int N, int K);
 void minplus_NVIDIA_path(float *mat1, float *mat2, int *mat2_path,
-    float *res, int *res_path, int m, int n, int k);
+    float *res, int *res_path, int m, int n, int k, size_t &gpu_mem);
 
 void minplus_NVIDIA_path_gpu(float *d_mat1, float *d_res, int *d_res_path,
                              float *d_res_offset, int *d_res_path_offset,

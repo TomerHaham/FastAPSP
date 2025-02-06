@@ -53,7 +53,8 @@ int main(int argc, char **argv)
             }
         }
 // run the kernel
-    fap::fapGraph G(file, directed, weighted, K, partitioner, version);
+        std::chrono::time_point<std::chrono::high_resolution_clock> endTimeIo;       
+    fap::fapGraph G(file, directed, weighted, K, partitioner, version, endTimeIo);
     G.preCondition();
 if (G.isSplit() && K >= 3) {
     printf("Processing first three subgraphs in split mode\n");

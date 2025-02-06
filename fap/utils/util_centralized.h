@@ -257,8 +257,9 @@ void handle_diffgraph_path(int idx, int idy, int n,
     }
 
     min_plus_path(mat1, mat2, tmp, tmp_path, idx_num, idy_bdy_num, idx_bdy_num);
+    size_t tmp_mem_gpu;
     min_plus_path_advanced(tmp, mat3, mat3_path, res, res_path,
-        idx_num, idy_num, idy_bdy_num);
+        idx_num, idy_num, idy_bdy_num, tmp_mem_gpu);
 
     // res fill back to arc
     for (int i = 0; i < idx_num; i++) {

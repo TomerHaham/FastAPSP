@@ -11,7 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
+#include <chrono>
 #include <vector>
 #include <string>
 #include <unordered_map>
@@ -41,6 +41,13 @@ class fapGraph{
     double time_floyd;
     double time_min_plus;
     double time_data_transformation;
+    double edge_cut;
+    double mem_cons_sssp;
+    double mem_cons_floyd;
+    double mem_cons_min_plus;
+
+    //int boundary_nodes_sum;
+    //int inner_nodes_sum;
     std::string output_file;
     std::vector<float> dist;
     std::vector<int32_t> path;
@@ -91,7 +98,7 @@ static std::atomic<int>* current_run;
     // ... rest of your public members
     // contruct data struct
     fapGraph(std::string input_graph,
-            bool directed, bool weight, int32_t K, std::string partitioner, bool version);
+            bool directed, bool weight, int32_t K, std::string partitioner, bool version, std::chrono::time_point<std::chrono::high_resolution_clock> &endTimeIo);
     fapGraph(int32_t num_vertexs, int64_t num_edges,
             std::vector<int32_t> row_offset, std::vector<int32_t> col_val,
             std::vector<float> weight, int32_t K);
@@ -135,6 +142,14 @@ static std::atomic<int>* current_run;
     double getTimeMinPlus();
     double getTimePartitioning();
     double getTimeData();
+    int getBoundaryNum();
+    int getInnerNum();
+    double getMemConsSSSP();
+    double getMemConsFloyd();
+    double getMemConsMinPlus();
+    double getEdgeCut();
+
+
     // print results 
     // Tomer added
     void printResalts();

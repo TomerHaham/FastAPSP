@@ -159,9 +159,9 @@ void floyd_path_gpu(int num, float *mat, int *path) {
 
 
 // compute the floyd
-void floyd_path(int num, float *mat, int *path) {
+void floyd_path(int num, float *mat, int *path, size_t &gpu_mem) {
 #ifdef WITH_CUDA
-    floyd_GPU_Nvidia_path(num, mat, path);
+    floyd_GPU_Nvidia_path(num, mat, path, gpu_mem);
 #elif defined(WITH_HIP)
     floyd_AMD_path(num, mat, path);
 #else

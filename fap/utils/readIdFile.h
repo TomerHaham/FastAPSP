@@ -79,7 +79,7 @@ void readIdFile(int n, int *id,
 void Graph_decomposition(int *id,
     std::unordered_map<int, std::vector<int>> &BlockVer,
     bool directed, int K, int vertexs, int edges,
-    int *adj_size, int *row_offset, int *col_val, std::string partitioner, double &time_partitioning)
+    int *adj_size, int *row_offset, int *col_val, std::string partitioner, double &time_partitioning, double &edge_cut)
 {
     auto start_time_partitioning = std::chrono::high_resolution_clock::now();
 if (partitioner == "jet") {
@@ -123,16 +123,17 @@ if (partitioner == "jet") {
     config.max_imb_ratio = 1.03;
     
     jet_partitioner::experiment_data<value_t> experiment;
-    value_t edge_cut = 0;
+    value_t edge_cut_jet = 0;
     
     auto part_view = jet_partitioner::partition(
-        edge_cut,
+        edge_cut_jet,
         config,
         graph,
         vertex_weights,
         true,
         experiment
     );
+
 
     auto h_part_view = Kokkos::create_mirror_view(part_view);
     Kokkos::deep_copy(h_part_view, part_view);
@@ -142,6 +143,9 @@ if (partitioner == "jet") {
         id[i] = subGraph_id;
         BlockVer[subGraph_id].push_back(i);
     }
+    auto end_time_partitioning = std::chrono::high_resolution_clock::now();
+    time_partitioning = std::chrono::duration<double>(end_time_partitioning - start_time_partitioning).count();
+    edge_cut = edge_cut_jet;
 }
  // work on host
  /*   
@@ -193,79 +197,6 @@ if (partitioner == "jet") {
 }
 */
 
-/*    if (partitioner == "jet") {
-	using Device = Kokkos::Cuda;
-
-        using matrix_t = KokkosSparse::CrsMatrix<int, int, Device, void, edge_offset_t>;
-        using graph_t = typename matrix_t::staticcrsgraph_type;
-
-        // Allocate and populate Kokkos Views for CSR representation
-        edge_view_t row_map(Kokkos::ViewAllocateWithoutInitializing("row_map"), vertexs + 1);
-        edge_mirror_t row_map_m = Kokkos::create_mirror_view(row_map);
-        vtx_view_t entries(Kokkos::ViewAllocateWithoutInitializing("entries"), edges);
-        vtx_mirror_t entries_m = Kokkos::create_mirror_view(entries);
-        wgt_view_t values(Kokkos::ViewAllocateWithoutInitializing("values"), edges);
-        wgt_mirror_t values_m = Kokkos::create_mirror_view(values);
-
-        // Fill row_map and entries from input data
-        for (int i = 0; i <= vertexs; ++i) {
-            row_map_m(i) = row_offset[i];
-        }
-        for (int i = 0; i < edges; ++i) {
-            entries_m(i) = col_val[i];
-        }
-
-        // Assuming unweighted graph, set all edge weights to 1
-        Kokkos::deep_copy(values_m, 1);
-
-        // Copy data to device views
-        Kokkos::deep_copy(row_map, row_map_m);
-        Kokkos::deep_copy(entries, entries_m);
-        Kokkos::deep_copy(values, values_m);
-
-        // Create the graph object
-        graph_t g_graph(entries, row_map);
-        matrix_t graph("input graph", vertexs, values, g_graph);
-
-        // Jet partitioning setup
-        Kokkos::View<int*, Device> vertex_weights("vertex_weights", vertexs);
-	// added 28.11
-	Kokkos::deep_copy(vertex_weights, 1);
-
-        jet_partitioner::experiment_data<int> experiment;
-
-        jet_partitioner::config_t config;
-config.coarsening_alg = 0;  // Set coarsening algorithm
-config.num_parts = K;       // Set the number of parts (partitions)
-config.max_imb_ratio = 1.03; // Set imbalance ratio, etc.
-config.num_iter = 1;
-config.refine_tolerance = 0.999;
-config.dump_coarse = false;
-config.ultra_settings = false;
-value_t edge_cut = 0;  // or float depending on your weight type
-
-        // Perform the partition
-        //auto part_view = jet_partitioner::partitioner<matrix_t, int>::partition(graph, vertex_weights, K, 1.03, false, experiment);
-       auto part_view = jet_partitioner::partition(edge_cut, config, graph, vertex_weights, false, experiment);
-
-	// After partitioning
-	//experiment.verboseReport();
-
-        // Copy results back to host
-
-//	 auto part_host = Kokkos::create_mirror_view(part_view);
-  //      Kokkos::deep_copy(part_host, part_view);
-
-	vtx_view_t part_host("part_host", part_view.size());
-	Kokkos::deep_copy(part_host, part_view);
-
-        // Assign partition IDs to `id` and fill `BlockVer`
-        for (unsigned i = 0; i < part_host.size(); i++) {
-            int subGraph_id = part_host(i) + 1; // Convert to 1-based indexing for output
-            id[i] = subGraph_id;
-            BlockVer[subGraph_id].push_back(i);
-        }
-    }*/
     else if (partitioner == "KaHIP" || partitioner == "KaHIP_eco" || partitioner == "KaHIP_soc_eco" || partitioner == "KaHIP_soc_s" || partitioner == "KaHIP_soc_f" ||partitioner == "KaHIP_f" || partitioner == "metis") {
         std::vector<idx_t> xadj(1);
         std::vector<idx_t> adjncy;
@@ -329,6 +260,7 @@ value_t edge_cut = 0;  // or float depending on your weight type
             }
             kaffpa(&nVertices, nullptr, xadj.data(), nullptr, adjncy.data(), &nParts,
                    &imbalance, suppress_output, seed, mode, &edgecut, part.data());
+            edge_cut = edgecut;
         }
         else if (partitioner == "metis") {
             int ret = METIS_PartGraphKway(&nVertices, &nWeights,
@@ -340,6 +272,7 @@ value_t edge_cut = 0;  // or float depending on your weight type
                 std::cerr << "METIS_ERROR" << std::endl;
                 return;
             }
+            edge_cut = objval;
         }
 
         // Assign partition IDs to `id` and fill `BlockVer`
@@ -361,12 +294,12 @@ void readIdFile_METIS(
         int *id, std::unordered_map<int, std::vector<int>> &BlockVer,
         int K, bool directed, int vertexs,
         int edges, int *adj_size,
-        int *row_offset, int *col_val, float *weight, std::string partitioner, double &time_partitioning) {
+        int *row_offset, int *col_val, float *weight, std::string partitioner, double &time_partitioning, double &edge_cut) {
 #ifdef DEBUG
     readIdFile(vertexs, id, BlockVer, K, directed, true);
 #else
     Graph_decomposition(id, BlockVer, directed, K,
-        vertexs, edges, adj_size, row_offset, col_val, partitioner, time_partitioning);
+        vertexs, edges, adj_size, row_offset, col_val, partitioner, time_partitioning, edge_cut);
 #endif
 }
 

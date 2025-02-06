@@ -280,7 +280,7 @@ void handle_boundry_path_data_on_gpu(float *subGraph, int *subGraph_path,
 void handle_boundry_path(float *subGraph, int *subGraph_path,
     int vertexs, int edges, int bdy_num,
     int *adj_size, int *row_offset, int *col_val, float *weights,
-    int *st2ed, int offset) {
+    int *st2ed, int offset, size_t &gpu_mem) {
     // TODO(Liu_xiandong): The following macro judgment does not look intuitive
     // and needs to be changed later
 #ifdef WITH_HIP
@@ -290,7 +290,7 @@ void handle_boundry_path(float *subGraph, int *subGraph_path,
 #elif defined(WITH_CUDA) && !defined(WITH_NVGRAPH)
     handle_boundry_Nvidia_GPU(subGraph, vertexs, edges, bdy_num,
                             adj_size, row_offset, col_val, weights,
-                            st2ed, offset);
+                            st2ed, offset, gpu_mem);
 #else
     int *source_node = new int[bdy_num];
     for (int i = 0; i < bdy_num; i++) {

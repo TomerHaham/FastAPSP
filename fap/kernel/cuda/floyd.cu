@@ -342,7 +342,7 @@ void floyd_GPU_Nvidia_path_gpu(int num_node, float *d_Len, int *d_Path) {
 }
 
 
-void floyd_GPU_Nvidia_path(int num_node, float *arc, int *path_node)
+void floyd_GPU_Nvidia_path(int num_node, float *arc, int *path_node, size_t &gpu_mem)
 {
 	unsigned int n = num_node * num_node;
 	float *d_Len;
@@ -403,6 +403,9 @@ void floyd_GPU_Nvidia_path(int num_node, float *arc, int *path_node)
 
 	checkCudaErrors(cudaMemcpy(arc, d_Len, n * sizeof(float), cudaMemcpyDeviceToHost));
 	checkCudaErrors(cudaMemcpy(path_node, d_Path, n * sizeof(int), cudaMemcpyDeviceToHost));
+	size_t free_memory, total_memory;
+    cudaMemGetInfo(&free_memory, &total_memory);
+    gpu_mem = total_memory - free_memory;
 
 	cudaFree(d_Len);
 	cudaFree(d_Path);

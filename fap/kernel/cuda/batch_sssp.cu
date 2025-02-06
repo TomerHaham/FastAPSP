@@ -223,7 +223,7 @@ __global__ void dijkstraKernel2(float *d_weightRow, float *d_weightRowTemp, bool
     }
 }
 
-void multi_source_Nvidia_sssp(int numFrom, int *fromNode, int vertexs, int edges, int *rowOffsetArc, int *colValueArc, float *weightArc, float *shortLenTable)
+void multi_source_Nvidia_sssp(int numFrom, int *fromNode, int vertexs, int edges, int *rowOffsetArc, int *colValueArc, float *weightArc, float *shortLenTable, size_t &gpu_mem)
 {
     int numberOfBlock;
     float *d_weightRow;
@@ -273,6 +273,9 @@ void multi_source_Nvidia_sssp(int numFrom, int *fromNode, int vertexs, int edges
         }
     }
     checkCudaErrors(cudaMemcpy(shortLenTable, d_res, numFrom * vertexs * sizeof(float), cudaMemcpyDeviceToHost));
+    size_t free_memory, total_memory;
+    cudaMemGetInfo(&free_memory, &total_memory);
+    gpu_mem = total_memory - free_memory;
 
     checkCudaErrors(cudaFree(d_rowOffsetArc));
     checkCudaErrors(cudaFree(d_colValueArc));
@@ -429,7 +432,7 @@ void handle_boundry_Nvidia_GPU_data_on_gpu(float *subGraph, int vertexs, int edg
 
 void handle_boundry_Nvidia_GPU(float *subGraph, int vertexs, int edges, int bdy_num,
                                        int *adj_size, int *row_offset, int *col_val, float *weight,
-                                       int *st2ed, int offset)
+                                       int *st2ed, int offset, size_t &gpu_mem)
 {
     int *sources = new int[bdy_num];
     for (int i = 0; i < bdy_num; i++)
@@ -438,6 +441,6 @@ void handle_boundry_Nvidia_GPU(float *subGraph, int vertexs, int edges, int bdy_
         sources[i] = ver;
     }
 
-    multi_source_Nvidia_sssp(bdy_num, sources, vertexs, edges, row_offset, col_val, weight, subGraph);
+    multi_source_Nvidia_sssp(bdy_num, sources, vertexs, edges, row_offset, col_val, weight, subGraph, gpu_mem);
     delete[] sources;
 }

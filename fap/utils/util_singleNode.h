@@ -220,8 +220,9 @@ void singNode_handle_diffgraph_path(float *subGraph, int *subGraph_path,
 #ifdef TIMER
     gettimeofday(&begin_computation2, NULL);
 #endif
+    size_t tmp_mem_gpu;
     min_plus_path_advanced(tmp, mat3, mat3_path,
-        res, res_path, idx_num, idy_num, idy_bdy_num);
+        res, res_path, idx_num, idy_num, idy_bdy_num, tmp_mem_gpu);
 #ifdef TIMER
     gettimeofday(&end_computation2, NULL);
     elapsedTime_computation2 +=
